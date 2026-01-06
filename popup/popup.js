@@ -15,6 +15,7 @@ const searchInput = document.getElementById('searchInput');
 const clearBtn = document.getElementById('clearBtn');
 const backBtn = document.getElementById('backBtn');
 const showHeadersCheckbox = document.getElementById('showHeaders');
+const showHeadersDetailCheckbox = document.getElementById('showHeadersDetail');
 const searchSection = document.getElementById('searchSection');
 
 // Initialize
@@ -31,7 +32,21 @@ function setupEventListeners() {
     clearBtn.addEventListener('click', clearAllRequests);
     backBtn.addEventListener('click', showListView);
     searchInput.addEventListener('input', filterRequests);
-    showHeadersCheckbox.addEventListener('change', toggleHeaders);
+    
+    // Sync both checkboxes and toggle headers
+    showHeadersCheckbox.addEventListener('change', () => {
+        if (showHeadersDetailCheckbox) {
+            showHeadersDetailCheckbox.checked = showHeadersCheckbox.checked;
+        }
+        toggleHeaders();
+    });
+    
+    if (showHeadersDetailCheckbox) {
+        showHeadersDetailCheckbox.addEventListener('change', () => {
+            showHeadersCheckbox.checked = showHeadersDetailCheckbox.checked;
+            toggleHeaders();
+        });
+    }
     
     // Copy buttons (delegated)
     document.addEventListener('click', (e) => {
@@ -127,6 +142,11 @@ function showDetailView(request) {
     detailView.classList.remove('hidden');
     searchSection.classList.add('hidden');
     
+    // Sync checkbox state
+    if (showHeadersDetailCheckbox && showHeadersCheckbox) {
+        showHeadersDetailCheckbox.checked = showHeadersCheckbox.checked;
+    }
+    
     // Populate detail view
     document.getElementById('detailUrl').textContent = request.url;
     document.getElementById('detailMethod').textContent = request.method;
@@ -150,9 +170,13 @@ function showDetailView(request) {
 function updateHeadersDisplay() {
     if (!currentDetailRequest) return;
     
-    const showHeaders = showHeadersCheckbox.checked;
+    // Get checked state from either checkbox (they should be synced)
+    const showHeaders = showHeadersCheckbox ? showHeadersCheckbox.checked : 
+                       (showHeadersDetailCheckbox ? showHeadersDetailCheckbox.checked : false);
     const requestHeadersSection = document.getElementById('requestHeadersSection');
     const responseHeadersSection = document.getElementById('responseHeadersSection');
+    
+    if (!requestHeadersSection || !responseHeadersSection) return;
     
     if (showHeaders) {
         requestHeadersSection.classList.remove('hidden');

@@ -82,26 +82,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       capturedRequests = capturedRequests.slice(0, MAX_REQUESTS);
     }
     
-    return true; // Keep channel open for async response
+    // Fire-and-forget message - no response needed
+    // Return false to indicate synchronous handling
+    return false;
   }
   
   if (message.type === 'GET_REQUESTS') {
     // Return all captured requests
     sendResponse({ requests: capturedRequests });
-    return true;
+    return false; // Synchronous response sent
   }
   
   if (message.type === 'CLEAR_REQUESTS') {
     // Clear all requests
     capturedRequests = [];
     sendResponse({ success: true });
-    return true;
+    return false; // Synchronous response sent
   }
   
   if (message.type === 'GET_REQUEST_COUNT') {
     // Return request count
     sendResponse({ count: capturedRequests.length });
-    return true;
+    return false; // Synchronous response sent
   }
   
   return false;

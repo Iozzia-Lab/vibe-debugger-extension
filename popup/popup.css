@@ -259,12 +259,18 @@ button:active {
     border-bottom: 1px solid #3e3e42;
     display: flex;
     align-items: center;
+    gap: 15px;
 }
 
 .detail-header h2 {
     font-size: 16px;
     font-weight: 600;
     color: #ffffff;
+    flex: 1;
+}
+
+.detail-header .toggle-headers {
+    margin-left: auto;
 }
 
 .detail-content {
