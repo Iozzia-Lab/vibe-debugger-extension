@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Capture Inspector</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>Network Capture</h1>
+            <div class="header-controls">
+                <span class="request-count" id="requestCount">0 requests</span>
+                <button class="btn-clear" id="clearBtn">Clear All</button>
+            </div>
+        </div>
+        
+        <!-- Search/Filter -->
+        <div class="search-section" id="searchSection">
+            <input type="text" id="searchInput" placeholder="Search by URL..." class="search-input">
+            <label class="toggle-headers">
+                <input type="checkbox" id="showHeaders">
+                <span>Show Headers</span>
+            </label>
+        </div>
+        
+        <!-- Request List View -->
+        <div class="view" id="listView">
+            <div class="request-list" id="requestList">
+                <div class="empty-state">
+                    <p>No requests captured yet.</p>
+                    <p class="hint">Navigate to a website to start capturing network requests.</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Request Detail View -->
+        <div class="view hidden" id="detailView">
+            <div class="detail-header">
+                <button class="btn-back" id="backBtn">← Back</button>
+                <h2 id="detailTitle">Request Details</h2>
+            </div>
+            
+            <div class="detail-content">
+                <!-- URL Section -->
+                <div class="detail-section">
+                    <div class="section-header">
+                        <h3>URL</h3>
+                        <button class="btn-copy" data-copy="url">Copy</button>
+                    </div>
+                    <div class="section-content url-content" id="detailUrl"></div>
+                </div>
+                
+                <!-- Method & Status -->
+                <div class="detail-meta">
+                    <div class="meta-item">
+                        <span class="meta-label">Method:</span>
+                        <span class="meta-value method" id="detailMethod"></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Status:</span>
+                        <span class="meta-value status" id="detailStatus"></span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Time:</span>
+                        <span class="meta-value" id="detailTime"></span>
+                    </div>
+                </div>
+                
+                <!-- Request Headers (toggleable) -->
+                <div class="detail-section headers-section hidden" id="requestHeadersSection">
+                    <div class="section-header">
+                        <h3>Request Headers</h3>
+                        <button class="btn-copy" data-copy="requestHeaders">Copy</button>
+                    </div>
+                    <div class="section-content json-content" id="detailRequestHeaders"></div>
+                </div>
+                
+                <!-- Request Payload -->
+                <div class="detail-section">
+                    <div class="section-header">
+                        <h3>Request Payload</h3>
+                        <button class="btn-copy" data-copy="payload">Copy</button>
+                    </div>
+                    <div class="section-content json-content" id="detailPayload"></div>
+                </div>
+                
+                <!-- Response Headers (toggleable) -->
+                <div class="detail-section headers-section hidden" id="responseHeadersSection">
+                    <div class="section-header">
+                        <h3>Response Headers</h3>
+                        <button class="btn-copy" data-copy="responseHeaders">Copy</button>
+                    </div>
+                    <div class="section-content json-content" id="detailResponseHeaders"></div>
+                </div>
+                
+                <!-- Response -->
+                <div class="detail-section">
+                    <div class="section-header">
+                        <h3>Response</h3>
+                        <button class="btn-copy" data-copy="response">Copy</button>
+                    </div>
+                    <div class="section-content json-content" id="detailResponse"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>
