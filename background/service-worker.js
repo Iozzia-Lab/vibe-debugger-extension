@@ -106,6 +106,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false; // Synchronous response sent
   }
   
+  if (message.type === 'OPEN_POPUP') {
+    // Open the popup
+    chrome.action.openPopup();
+    sendResponse({ success: true });
+    return false;
+  }
+  
+  if (message.type === 'TOGGLE_SIDE_PANEL') {
+    // Toggle side panel using Chrome Side Panel API
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.windows.get(tabs[0].windowId, (window) => {
+          chrome.sidePanel.open({ windowId: window.id });
+        });
+      }
+    });
+    sendResponse({ success: true });
+    return false;
+  }
+  
+  if (message.type === 'CLOSE_SIDE_PANEL') {
+    // Close side panel - Chrome handles this automatically when user clicks X
+    // But we can set it to disabled if needed
+    sendResponse({ success: true });
+    return false;
+  }
+  
   return false;
 });
 

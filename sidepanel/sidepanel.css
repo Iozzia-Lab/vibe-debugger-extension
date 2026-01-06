@@ -6,17 +6,19 @@
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    width: 700px;
-    max-height: 800px;
+    width: 100%;
+    height: 100vh;
     background: #1e1e1e;
     color: #d4d4d4;
     font-size: 13px;
+    overflow: hidden;
 }
 
-.container {
+.sidepanel-container {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    height: 100vh;
+    width: 100%;
 }
 
 /* Header */
@@ -27,6 +29,7 @@ body {
     padding: 15px 20px;
     background: #252526;
     border-bottom: 1px solid #3e3e42;
+    flex-shrink: 0;
 }
 
 .header h1 {
@@ -73,6 +76,45 @@ button:active {
     background: #0a4d75;
 }
 
+.btn-undock {
+    background: #3e3e42;
+    padding: 6px 10px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #d4d4d4;
+}
+
+.btn-undock:hover {
+    background: #4e4e52;
+}
+
+.btn-undock svg {
+    display: block;
+}
+
+.btn-close-panel {
+    background: transparent;
+    padding: 0;
+    font-size: 18px;
+    font-weight: 600;
+    border: none;
+    color: #d4d4d4;
+    cursor: pointer;
+    width: auto;
+    height: auto;
+    min-width: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-close-panel:hover {
+    color: #ffffff;
+    background: transparent;
+}
+
 .btn-clear {
     background: transparent;
     border: 1px solid #ffffff;
@@ -103,24 +145,6 @@ button:active {
     background: #4e4e52;
 }
 
-.btn-dock {
-    background: #3e3e42;
-    padding: 6px 10px;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #d4d4d4;
-}
-
-.btn-dock:hover {
-    background: #4e4e52;
-}
-
-.btn-dock svg {
-    display: block;
-}
-
 /* Filter Buttons */
 .filter-buttons {
     padding: 6px 12px;
@@ -129,6 +153,7 @@ button:active {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
 .filter-btn {
@@ -166,6 +191,7 @@ button:active {
     display: flex;
     gap: 15px;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .search-input {
@@ -284,6 +310,7 @@ button:active {
     display: flex;
     align-items: center;
     gap: 15px;
+    flex-shrink: 0;
 }
 
 .detail-header h2 {
@@ -299,6 +326,7 @@ button:active {
 
 .detail-content {
     padding: 20px;
+    overflow-y: auto;
 }
 
 .detail-section {
@@ -340,11 +368,6 @@ button:active {
     color: #9cdcfe;
 }
 
-.json-content {
-    color: #d4d4d4;
-}
-
-/* JSON Syntax Highlighting (basic) */
 .json-content {
     color: #d4d4d4;
 }

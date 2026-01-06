@@ -18,7 +18,7 @@ const backBtn = document.getElementById('backBtn');
 const showHeadersCheckbox = document.getElementById('showHeaders');
 const showHeadersDetailCheckbox = document.getElementById('showHeadersDetail');
 const searchSection = document.getElementById('searchSection');
-const dockBtn = document.getElementById('dockBtn');
+const undockBtn = document.getElementById('undockBtn');
 const projectsBtn = document.getElementById('projectsBtn');
 const projectsModal = document.getElementById('projectsModal');
 const projectsList = document.getElementById('projectsList');
@@ -28,6 +28,7 @@ const addProjectBtn = document.getElementById('addProjectBtn');
 const closeProjectsModal = document.getElementById('closeProjectsModal');
 const closeProjectFormModal = document.getElementById('closeProjectFormModal');
 const cancelProjectForm = document.getElementById('cancelProjectForm');
+const closePanelBtn = document.getElementById('closePanelBtn');
 let editingProjectId = null;
 
 // Initialize
@@ -35,10 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadFilterState();
     loadRequests();
     setupEventListeners();
-    // Load projects after setup (function is defined later)
-    if (typeof loadProjects === 'function') {
-        loadProjects();
-    }
+    loadProjects();
     
     // Refresh requests periodically
     setInterval(loadRequests, 1000);
@@ -50,18 +48,21 @@ function setupEventListeners() {
     backBtn.addEventListener('click', showListView);
     searchInput.addEventListener('input', filterRequests);
     
-    // Dock to side panel
-    if (dockBtn) {
-        dockBtn.addEventListener('click', dockToSidePanel);
+    // Undock button - switch back to popup
+    if (undockBtn) {
+        undockBtn.addEventListener('click', undockToPopup);
+    }
+    
+    // Close panel button - close the panel
+    if (closePanelBtn) {
+        closePanelBtn.addEventListener('click', closeSidePanel);
     }
     
     // Projects button
     if (projectsBtn) {
         projectsBtn.addEventListener('click', () => {
             projectsModal.classList.remove('hidden');
-            if (typeof loadProjects === 'function') {
-                loadProjects();
-            }
+            loadProjects();
         });
     }
     
@@ -73,23 +74,11 @@ function setupEventListeners() {
     }
     
     if (closeProjectFormModal) {
-        closeProjectFormModal.addEventListener('click', () => {
-            if (typeof closeProjectForm === 'function') {
-                closeProjectForm();
-            } else {
-                projectFormModal.classList.add('hidden');
-            }
-        });
+        closeProjectFormModal.addEventListener('click', closeProjectForm);
     }
     
     if (cancelProjectForm) {
-        cancelProjectForm.addEventListener('click', () => {
-            if (typeof closeProjectForm === 'function') {
-                closeProjectForm();
-            } else {
-                projectFormModal.classList.add('hidden');
-            }
-        });
+        cancelProjectForm.addEventListener('click', closeProjectForm);
     }
     
     // Add project button
@@ -140,37 +129,18 @@ function setupEventListeners() {
     });
 }
 
-// Dock to side panel
-function dockToSidePanel() {
-    // Check if extension context is still valid
-    if (!chrome.runtime || !chrome.runtime.id) {
-        console.warn('[Network Capture] Extension context invalidated. Please reload the page.');
-        return;
-    }
-    
-    try {
-        // Use Chrome Side Panel API
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (chrome.runtime.lastError) {
-                console.warn('[Network Capture] Error:', chrome.runtime.lastError.message);
-                return;
-            }
-            
-            if (tabs[0]) {
-                chrome.windows.get(tabs[0].windowId, (window) => {
-                    chrome.sidePanel.open({ windowId: window.id }, () => {
-                        if (chrome.runtime.lastError) {
-                            console.warn('[Network Capture] Error opening side panel:', chrome.runtime.lastError.message);
-                            return;
-                        }
-                        // Popup will close automatically when side panel opens
-                    });
-                });
-            }
-        });
-    } catch (error) {
-        console.warn('[Network Capture] Error docking to side panel:', error);
-    }
+// Undock to popup mode
+function undockToPopup() {
+    // Close the side panel - Chrome handles this via the X button
+    // User can click the extension icon to open the popup
+    // Note: window.close() doesn't work in side panels, user must use X button
+}
+
+// Close side panel
+function closeSidePanel() {
+    // Chrome side panel doesn't support programmatic closing
+    // User must use the X button provided by Chrome
+    // This function is kept for compatibility but does nothing
 }
 
 // Load requests from background service worker

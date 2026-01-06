@@ -4,22 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Network Capture Inspector</title>
-    <link rel="stylesheet" href="popup.css">
+    <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
-    <div class="container">
+    <div class="sidepanel-container">
         <!-- Header -->
         <div class="header">
             <h1>Network Capture</h1>
             <div class="header-controls">
                 <button class="btn-projects" id="projectsBtn" title="Manage Projects">📁</button>
-                <button class="btn-dock" id="dockBtn" title="Dock to Right">
+                <button class="btn-undock" id="undockBtn" title="Undock to Popup">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <rect x="0" y="0" width="7" height="16" fill="currentColor" opacity="0.3"/>
-                        <rect x="9" y="0" width="7" height="16" fill="currentColor"/>
+                        <rect x="0" y="0" width="6" height="6" fill="currentColor" opacity="0.5"/>
+                        <rect x="10" y="0" width="6" height="6" fill="currentColor" opacity="0.5"/>
+                        <rect x="0" y="10" width="6" height="6" fill="currentColor" opacity="0.5"/>
+                        <rect x="10" y="10" width="6" height="6" fill="currentColor" opacity="0.5"/>
                     </svg>
                 </button>
                 <button class="btn-clear" id="clearBtn">Clear</button>
+                <button class="btn-close-panel" id="closePanelBtn" title="Close Panel">✕</button>
             </div>
         </div>
         
@@ -177,6 +180,6 @@
         </div>
     </div>
     
-    <script src="popup.js"></script>
+    <script src="sidepanel.js"></script>
 </body>
 </html>
