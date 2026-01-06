@@ -2,6 +2,8 @@
 
 A Chrome browser extension (Manifest V3) that acts as a developer inspector tool to capture and inspect XHR/Fetch network requests. Capture API calls, view request payloads and responses, all in a clean popup interface.
 
+Gather all your network logs in one place for easy posting to AI agents the results of your test.
+
 ## Features
 
 - **Automatic Request Capture**: Automatically intercepts and captures all XHR/Fetch requests on any webpage
