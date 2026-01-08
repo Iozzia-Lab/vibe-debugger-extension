@@ -10,17 +10,15 @@
     <div class="sidepanel-container">
         <!-- Header -->
         <div class="header">
-            <h1>Network Capture</h1>
             <div class="header-controls">
-                <button class="btn-projects" id="projectsBtn" title="Manage Projects">📁</button>
-                <button class="btn-undock" id="undockBtn" title="Undock to Popup">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <rect x="0" y="0" width="6" height="6" fill="currentColor" opacity="0.5"/>
-                        <rect x="10" y="0" width="6" height="6" fill="currentColor" opacity="0.5"/>
-                        <rect x="0" y="10" width="6" height="6" fill="currentColor" opacity="0.5"/>
-                        <rect x="10" y="10" width="6" height="6" fill="currentColor" opacity="0.5"/>
+                <button class="btn-record" id="recordBtn" title="Toggle Recording">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+                        <circle cx="8" cy="8" r="3" fill="currentColor"/>
                     </svg>
                 </button>
+                <button class="btn-projects" id="projectsBtn" title="Manage Projects">📁</button>
+                <button class="btn-copy-selected" id="copySelectedBtn" disabled>Copy Selected</button>
                 <button class="btn-clear" id="clearBtn">Clear</button>
                 <button class="btn-close-panel" id="closePanelBtn" title="Close Panel">✕</button>
             </div>
@@ -81,22 +79,18 @@
             <button class="filter-btn" data-filter="img">IMG</button>
         </div>
         
-        <div class="request-count-row">
-            <span class="request-count" id="requestCount">0 requests</span>
-        </div>
-        
         <!-- Search/Filter -->
         <div class="search-section" id="searchSection">
-            <input type="text" id="searchInput" placeholder="Search by URL (comma-separated)..." class="search-input">
-            <label class="toggle-headers">
-                <input type="checkbox" id="showHeaders">
-                <span>Show Headers</span>
-            </label>
+            <div class="search-input-wrapper">
+                <input type="text" id="searchInput" placeholder="Search by URL (comma-separated)..." class="search-input">
+                <div class="search-history-dropdown hidden" id="searchHistoryDropdown"></div>
+            </div>
         </div>
         
         <!-- Request List View -->
         <div class="view" id="listView">
             <div class="request-list" id="requestList">
+                <div class="request-count-inline" id="requestCount">0 requests</div>
                 <div class="empty-state">
                     <p>No requests captured yet.</p>
                     <p class="hint">Navigate to a website to start capturing network requests.</p>

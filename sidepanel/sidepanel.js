@@ -6,6 +6,8 @@ let allRequests = [];
 let filteredRequests = [];
 let currentDetailRequest = null;
 let currentFilter = 'all';
+let isContextInvalidated = false;
+let selectedRequestIds = new Set(); // Track selected request IDs
 
 // DOM Elements
 const requestList = document.getElementById('requestList');
@@ -13,9 +15,10 @@ const listView = document.getElementById('listView');
 const detailView = document.getElementById('detailView');
 const requestCount = document.getElementById('requestCount');
 const searchInput = document.getElementById('searchInput');
+const searchHistoryDropdown = document.getElementById('searchHistoryDropdown');
+const recordBtn = document.getElementById('recordBtn');
 const clearBtn = document.getElementById('clearBtn');
 const backBtn = document.getElementById('backBtn');
-const showHeadersCheckbox = document.getElementById('showHeaders');
 const showHeadersDetailCheckbox = document.getElementById('showHeadersDetail');
 const searchSection = document.getElementById('searchSection');
 const undockBtn = document.getElementById('undockBtn');
@@ -29,14 +32,17 @@ const closeProjectsModal = document.getElementById('closeProjectsModal');
 const closeProjectFormModal = document.getElementById('closeProjectFormModal');
 const cancelProjectForm = document.getElementById('cancelProjectForm');
 const closePanelBtn = document.getElementById('closePanelBtn');
+const copySelectedBtn = document.getElementById('copySelectedBtn');
 let editingProjectId = null;
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     loadFilterState();
+    loadRecordingState();
     loadRequests();
     setupEventListeners();
     loadProjects();
+    updateCopySelectedButton();
     
     // Refresh requests periodically
     setInterval(loadRequests, 1000);
@@ -44,14 +50,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Setup event listeners
 function setupEventListeners() {
+    recordBtn.addEventListener('click', toggleRecording);
     clearBtn.addEventListener('click', clearAllRequests);
     backBtn.addEventListener('click', showListView);
     searchInput.addEventListener('input', filterRequests);
     
-    // Undock button - switch back to popup
-    if (undockBtn) {
-        undockBtn.addEventListener('click', undockToPopup);
+    // Copy Selected button
+    if (copySelectedBtn) {
+        copySelectedBtn.addEventListener('click', copySelected);
     }
+    
+    // Search history dropdown
+    searchInput.addEventListener('focus', showSearchHistory);
+    searchInput.addEventListener('blur', (e) => {
+        // Delay hiding to allow clicking on dropdown items
+        setTimeout(() => {
+            if (!searchHistoryDropdown.matches(':hover') && document.activeElement !== searchInput) {
+                hideSearchHistory();
+            }
+        }, 200);
+    });
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && searchInput.value.trim()) {
+            saveSearchHistory(searchInput.value.trim());
+            hideSearchHistory();
+        }
+    });
     
     // Close panel button - close the panel
     if (closePanelBtn) {
@@ -105,17 +129,8 @@ function setupEventListeners() {
         });
     });
     
-    // Sync both checkboxes and toggle headers
-    showHeadersCheckbox.addEventListener('change', () => {
-        if (showHeadersDetailCheckbox) {
-            showHeadersDetailCheckbox.checked = showHeadersCheckbox.checked;
-        }
-        toggleHeaders();
-    });
-    
     if (showHeadersDetailCheckbox) {
         showHeadersDetailCheckbox.addEventListener('change', () => {
-            showHeadersCheckbox.checked = showHeadersDetailCheckbox.checked;
             toggleHeaders();
         });
     }
@@ -129,12 +144,6 @@ function setupEventListeners() {
     });
 }
 
-// Undock to popup mode
-function undockToPopup() {
-    // Close the side panel - Chrome handles this via the X button
-    // User can click the extension icon to open the popup
-    // Note: window.close() doesn't work in side panels, user must use X button
-}
 
 // Close side panel
 function closeSidePanel() {
@@ -143,11 +152,105 @@ function closeSidePanel() {
     // This function is kept for compatibility but does nothing
 }
 
+// Search History Functions
+function saveSearchHistory(searchTerm) {
+    if (!searchTerm || searchTerm.length === 0) return;
+    
+    chrome.storage.local.get(['searchHistory'], (result) => {
+        let history = result.searchHistory || [];
+        
+        // Remove if already exists (to move to top)
+        history = history.filter(item => item !== searchTerm);
+        
+        // Add to beginning
+        history.unshift(searchTerm);
+        
+        // Limit to 10 items
+        if (history.length > 10) {
+            history = history.slice(0, 10);
+        }
+        
+        chrome.storage.local.set({ searchHistory: history }, () => {
+            // Update dropdown if visible
+            if (!searchHistoryDropdown.classList.contains('hidden')) {
+                renderSearchHistory();
+            }
+        });
+    });
+}
+
+function loadSearchHistory() {
+    chrome.storage.local.get(['searchHistory'], (result) => {
+        const history = result.searchHistory || [];
+        return history;
+    });
+}
+
+function renderSearchHistory() {
+    chrome.storage.local.get(['searchHistory'], (result) => {
+        const history = result.searchHistory || [];
+        
+        if (history.length === 0) {
+            searchHistoryDropdown.classList.add('hidden');
+            return;
+        }
+        
+        searchHistoryDropdown.innerHTML = history.map(term => `
+            <div class="search-history-item">
+                <span class="search-history-item-text" data-term="${escapeHtml(term)}">${escapeHtml(term)}</span>
+                <button class="search-history-item-delete" data-term="${escapeHtml(term)}" title="Remove">✕</button>
+            </div>
+        `).join('');
+        
+        // Add click listeners
+        searchHistoryDropdown.querySelectorAll('.search-history-item-text').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const term = e.target.getAttribute('data-term');
+                searchInput.value = term;
+                filterRequests();
+                hideSearchHistory();
+                searchInput.focus();
+            });
+        });
+        
+        // Add delete listeners
+        searchHistoryDropdown.querySelectorAll('.search-history-item-delete').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const term = e.target.getAttribute('data-term');
+                deleteSearchHistoryItem(term);
+            });
+        });
+        
+        searchHistoryDropdown.classList.remove('hidden');
+    });
+}
+
+function deleteSearchHistoryItem(term) {
+    chrome.storage.local.get(['searchHistory'], (result) => {
+        let history = result.searchHistory || [];
+        history = history.filter(item => item !== term);
+        
+        chrome.storage.local.set({ searchHistory: history }, () => {
+            renderSearchHistory();
+        });
+    });
+}
+
+function showSearchHistory() {
+    renderSearchHistory();
+}
+
+function hideSearchHistory() {
+    searchHistoryDropdown.classList.add('hidden');
+}
+
 // Load requests from background service worker
 function loadRequests() {
     // Check if extension context is still valid
     if (!chrome.runtime || !chrome.runtime.id) {
-        console.warn('[Network Capture] Extension context invalidated. Please reload the page.');
+        isContextInvalidated = true;
+        renderRequestList(); // Re-render to show reload button
         return;
     }
     
@@ -155,25 +258,44 @@ function loadRequests() {
         chrome.runtime.sendMessage({ type: 'GET_REQUESTS' }, (response) => {
             // Check for runtime errors
             if (chrome.runtime.lastError) {
-                console.warn('[Network Capture] Error:', chrome.runtime.lastError.message);
+                const errorMsg = chrome.runtime.lastError.message || '';
+                if (errorMsg.includes('Extension context invalidated') || 
+                    errorMsg.includes('context invalidated') ||
+                    errorMsg.includes('Receiving end does not exist')) {
+                    isContextInvalidated = true;
+                    renderRequestList(); // Re-render to show reload button
+                    return;
+                }
+                console.warn('[Network Capture] Error:', errorMsg);
                 return;
             }
+            
+            // Context is valid
+            isContextInvalidated = false;
             
             if (response && response.requests) {
                 allRequests = response.requests;
                 // Re-apply filters after loading requests
                 applyFilters();
+                updateCopySelectedButton();
             }
         });
     } catch (error) {
-        console.warn('[Network Capture] Error loading requests:', error);
+        const errorMsg = error ? (error.message || String(error)) : 'Unknown error';
+        if (errorMsg.includes('Extension context invalidated') || 
+            errorMsg.includes('context invalidated')) {
+            isContextInvalidated = true;
+            renderRequestList(); // Re-render to show reload button
+        } else {
+            console.warn('[Network Capture] Error loading requests:', error);
+        }
     }
 }
 
 // Update request count display
 function updateRequestCount() {
-    const count = filteredRequests.length;
-    requestCount.textContent = `${count} request${count !== 1 ? 's' : ''}`;
+    // Count is now displayed inline in the request list, so we just re-render the list
+    renderRequestList();
 }
 
 // Set filter type
@@ -213,6 +335,36 @@ function loadFilterState() {
     });
 }
 
+// Recording state
+let isRecording = true; // Default to recording on
+
+// Load recording state from storage
+function loadRecordingState() {
+    chrome.storage.local.get(['isRecording'], (result) => {
+        isRecording = result.isRecording !== undefined ? result.isRecording : true;
+        updateRecordingButton();
+    });
+}
+
+// Toggle recording state
+function toggleRecording() {
+    isRecording = !isRecording;
+    chrome.storage.local.set({ isRecording: isRecording }, () => {
+        updateRecordingButton();
+        // Notify background script
+        chrome.runtime.sendMessage({ type: 'SET_RECORDING_STATE', isRecording: isRecording });
+    });
+}
+
+// Update recording button appearance
+function updateRecordingButton() {
+    if (isRecording) {
+        recordBtn.classList.add('recording');
+    } else {
+        recordBtn.classList.remove('recording');
+    }
+}
+
 // Apply both type filter and search filter
 function applyFilters() {
     let requests = allRequests;
@@ -221,17 +373,26 @@ function applyFilters() {
     if (currentFilter !== 'all') {
         requests = requests.filter(req => {
             const url = req.url.toLowerCase();
+            const method = req.method ? req.method.toLowerCase() : '';
             const contentType = (req.responseHeaders && req.responseHeaders['content-type']) ? 
                                req.responseHeaders['content-type'].toLowerCase() : '';
             
             switch (currentFilter) {
                 case 'fetch':
-                    // Filter for API calls (JSON responses or common API patterns)
-                    return contentType.includes('application/json') || 
-                           contentType.includes('application/xml') ||
-                           url.includes('/api/') ||
-                           url.includes('/rest/') ||
-                           url.includes('/graphql');
+                    // Filter for API calls - exclude static assets
+                    const isImage = contentType.includes('image/') || url.match(/\.(png|jpg|jpeg|gif|svg|webp|ico|bmp)(\?|$)/i);
+                    const isFont = contentType.includes('font/') || url.match(/\.(woff|woff2|ttf|otf|eot)(\?|$)/i);
+                    const isStylesheet = contentType.includes('text/css') || url.endsWith('.css');
+                    const isScript = contentType.includes('javascript') || url.match(/\.(js|mjs)(\?|$)/i);
+                    
+                    // Exclude static assets
+                    if (isImage || isFont || isStylesheet || isScript) {
+                        return false;
+                    }
+                    
+                    // Include everything else (all non-static requests are potential API calls)
+                    // This includes GET requests that return JSON/XML/HTML, and all POST/PUT/PATCH/DELETE
+                    return true;
                 case 'css':
                     return url.endsWith('.css') || contentType.includes('text/css');
                 case 'js':
@@ -259,6 +420,9 @@ function applyFilters() {
     // Apply search filter - support comma-separated terms (OR logic)
     const searchValue = searchInput.value.trim();
     if (searchValue) {
+        // Save to search history when filtering
+        saveSearchHistory(searchValue);
+        
         // Split by comma and trim each term
         const searchTerms = searchValue.split(',').map(term => term.trim().toLowerCase()).filter(term => term.length > 0);
         
@@ -277,8 +441,12 @@ function applyFilters() {
     }
     
     filteredRequests = requests;
+    // Remove selections that are no longer in filtered list
+    const filteredIds = new Set(filteredRequests.map(r => r.id));
+    selectedRequestIds = new Set(Array.from(selectedRequestIds).filter(id => filteredIds.has(id)));
     renderRequestList();
     updateRequestCount();
+    updateCopySelectedButton();
 }
 
 // Filter requests by search term
@@ -288,8 +456,29 @@ function filterRequests() {
 
 // Render request list
 function renderRequestList() {
-    if (filteredRequests.length === 0) {
+    // Show reload button if context is invalidated
+    if (isContextInvalidated) {
         requestList.innerHTML = `
+            <div class="empty-state">
+                <p>Extension context invalidated</p>
+                <p class="hint">Please reload the page to start capturing network requests.</p>
+                <button class="btn-reload-page" id="reloadPageBtn">Reload Page</button>
+            </div>
+        `;
+        
+        // Add reload button listener
+        const reloadBtn = document.getElementById('reloadPageBtn');
+        if (reloadBtn) {
+            reloadBtn.addEventListener('click', reloadCurrentPage);
+        }
+        return;
+    }
+    
+    const count = filteredRequests.length;
+    const countHtml = `<div class="request-count-inline" id="requestCount">${count} request${count !== 1 ? 's' : ''}</div>`;
+    
+    if (filteredRequests.length === 0) {
+        requestList.innerHTML = countHtml + `
             <div class="empty-state">
                 <p>No requests found.</p>
                 ${searchInput.value ? '<p class="hint">Try a different search term.</p>' : ''}
@@ -298,20 +487,37 @@ function renderRequestList() {
         return;
     }
     
-    requestList.innerHTML = filteredRequests.map(req => {
+    requestList.innerHTML = countHtml + filteredRequests.map((req, index) => {
         const statusClass = getStatusClass(req.status);
         const uriPath = getUriPath(req.url);
+        const separator = index > 0 ? '<div class="request-separator"></div>' : '';
+        const isChecked = selectedRequestIds.has(req.id);
         
-        return `
-            <div class="request-item" data-request-id="${req.id}">
-                <span class="request-url" title="${escapeHtml(req.url)}">${escapeHtml(uriPath)}</span>
-                <span class="request-status ${statusClass}">${req.status}</span>
+        return `${separator}
+            <div class="request-item-text" data-request-id="${req.id}" title="${escapeHtml(req.url)}">
+                <input type="checkbox" class="request-checkbox" data-request-id="${req.id}" ${isChecked ? 'checked' : ''}>
+                <span class="request-url-text" data-request-id="${req.id}">${escapeHtml(uriPath)}</span>
+                <span class="request-status-text ${statusClass}">${req.status}</span>
             </div>
         `;
     }).join('');
     
-    // Add click listeners to request items
-    requestList.querySelectorAll('.request-item').forEach(item => {
+    // Add checkbox listeners (stop propagation to prevent detail view)
+    requestList.querySelectorAll('.request-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const requestId = checkbox.getAttribute('data-request-id');
+            if (checkbox.checked) {
+                selectedRequestIds.add(requestId);
+            } else {
+                selectedRequestIds.delete(requestId);
+            }
+            updateCopySelectedButton();
+        });
+    });
+    
+    // Add click listeners to request items (but not checkbox)
+    requestList.querySelectorAll('.request-url-text').forEach(item => {
         item.addEventListener('click', () => {
             const requestId = item.getAttribute('data-request-id');
             const request = filteredRequests.find(r => r.id === requestId);
@@ -329,10 +535,6 @@ function showDetailView(request) {
     detailView.classList.remove('hidden');
     searchSection.classList.add('hidden');
     
-    // Sync checkbox state
-    if (showHeadersDetailCheckbox && showHeadersCheckbox) {
-        showHeadersDetailCheckbox.checked = showHeadersCheckbox.checked;
-    }
     
     // Populate detail view
     document.getElementById('detailUrl').textContent = request.url;
@@ -357,9 +559,8 @@ function showDetailView(request) {
 function updateHeadersDisplay() {
     if (!currentDetailRequest) return;
     
-    // Get checked state from either checkbox (they should be synced)
-    const showHeaders = showHeadersCheckbox ? showHeadersCheckbox.checked : 
-                       (showHeadersDetailCheckbox ? showHeadersDetailCheckbox.checked : false);
+    // Get checked state from detail checkbox
+    const showHeaders = showHeadersDetailCheckbox ? showHeadersDetailCheckbox.checked : false;
     const requestHeadersSection = document.getElementById('requestHeadersSection');
     const responseHeadersSection = document.getElementById('responseHeadersSection');
     
@@ -392,17 +593,80 @@ function showListView() {
 
 // Clear all requests
 function clearAllRequests() {
-    if (confirm('Clear all captured requests?')) {
-        chrome.runtime.sendMessage({ type: 'CLEAR_REQUESTS' }, (response) => {
-            if (response && response.success) {
-                allRequests = [];
-                filteredRequests = [];
-                searchInput.value = '';
-                updateRequestCount();
-                renderRequestList();
-            }
-        });
+    chrome.runtime.sendMessage({ type: 'CLEAR_REQUESTS' }, (response) => {
+        if (response && response.success) {
+            allRequests = [];
+            filteredRequests = [];
+            selectedRequestIds.clear();
+            searchInput.value = '';
+            updateRequestCount();
+            updateCopySelectedButton();
+            renderRequestList();
+        }
+    });
+}
+
+// Update copy selected button state
+function updateCopySelectedButton() {
+    if (copySelectedBtn) {
+        const count = selectedRequestIds.size;
+        copySelectedBtn.disabled = count === 0;
+        copySelectedBtn.textContent = count > 0 ? `Copy Selected (${count})` : 'Copy Selected';
     }
+}
+
+// Copy selected requests to clipboard
+function copySelected() {
+    if (selectedRequestIds.size === 0) {
+        return;
+    }
+    
+    // Get selected requests (preserve order from filteredRequests)
+    const selectedRequests = filteredRequests.filter(req => selectedRequestIds.has(req.id));
+    
+    if (selectedRequests.length === 0) {
+        return;
+    }
+    
+    // Build formatted text with labels
+    let text = '';
+    
+    selectedRequests.forEach((req, index) => {
+        if (index > 0) {
+            text += '\n' + '='.repeat(80) + '\n\n';
+        }
+        
+        text += `Request ${index + 1}:\n`;
+        text += '-'.repeat(80) + '\n';
+        text += `URL: ${req.url}\n`;
+        text += `Method: ${req.method}\n`;
+        text += `Status: ${req.status} ${req.statusText || ''}\n`;
+        text += `Timestamp: ${formatTimestamp(req.timestamp)}\n`;
+        text += '\n';
+        
+        text += 'Payload:\n';
+        text += formatData(req.payload, false); // Use pretty-printed JSON for readability
+        text += '\n\n';
+        
+        text += 'Response:\n';
+        text += formatData(req.response, false); // Use pretty-printed JSON for readability
+        text += '\n';
+    });
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(text).then(() => {
+        // Show feedback
+        const originalText = copySelectedBtn.textContent;
+        copySelectedBtn.textContent = 'Copied!';
+        copySelectedBtn.disabled = true;
+        setTimeout(() => {
+            copySelectedBtn.textContent = originalText;
+            updateCopySelectedButton();
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard. Please try again.');
+    });
 }
 
 // Copy to clipboard
