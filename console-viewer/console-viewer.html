@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Console Log Viewer</title>
+    <link rel="stylesheet" href="console-viewer.css">
+</head>
+<body>
+    <div class="console-viewer-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-controls">
+                <button class="btn-record" id="recordBtn" title="Toggle Recording">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+                        <circle cx="8" cy="8" r="3" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="btn-copy-all" id="copyAllBtn">Copy All</button>
+                <button class="btn-clear" id="clearBtn">Clear</button>
+            </div>
+        </div>
+        
+        <!-- Filter Buttons -->
+        <div class="filter-buttons" id="filterButtons">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="log">Log</button>
+            <button class="filter-btn" data-filter="error">Error</button>
+            <button class="filter-btn" data-filter="warn">Warn</button>
+            <button class="filter-btn" data-filter="info">Info</button>
+            <button class="filter-btn" data-filter="debug">Debug</button>
+        </div>
+        
+        <!-- Search Section -->
+        <div class="search-section">
+            <input type="text" id="searchInput" placeholder="Search logs..." class="search-input">
+        </div>
+        
+        <!-- Log List View -->
+        <div class="log-list-container">
+            <div class="log-list" id="logList">
+                <div class="empty-state">
+                    <p>No console logs captured yet.</p>
+                    <p class="hint">Console logs will appear here as they are generated on the page.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="console-viewer.js"></script>
+</body>
+</html>

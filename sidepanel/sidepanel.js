@@ -33,6 +33,8 @@ const closeProjectFormModal = document.getElementById('closeProjectFormModal');
 const cancelProjectForm = document.getElementById('cancelProjectForm');
 const closePanelBtn = document.getElementById('closePanelBtn');
 const copySelectedBtn = document.getElementById('copySelectedBtn');
+const openConsoleViewerBtn = document.getElementById('openConsoleViewerBtn');
+const copyConsoleCheckbox = document.getElementById('copyConsoleCheckbox');
 let editingProjectId = null;
 
 // Initialize
@@ -58,6 +60,11 @@ function setupEventListeners() {
     // Copy Selected button
     if (copySelectedBtn) {
         copySelectedBtn.addEventListener('click', copySelected);
+    }
+    
+    // Open Console Viewer button
+    if (openConsoleViewerBtn) {
+        openConsoleViewerBtn.addEventListener('click', openConsoleViewer);
     }
     
     // Search history dropdown
@@ -628,8 +635,32 @@ function copySelected() {
         return;
     }
     
-    // Build formatted text with labels
+    // Check if console logs should be included
+    const includeConsole = copyConsoleCheckbox && copyConsoleCheckbox.checked;
+    
+    // If console logs are requested, fetch them first
+    if (includeConsole) {
+        chrome.runtime.sendMessage({ type: 'GET_CONSOLE_LOGS' }, (response) => {
+            if (chrome.runtime.lastError) {
+                // If error, just copy network requests
+                copyNetworkRequestsToClipboard(selectedRequests);
+                return;
+            }
+            
+            const consoleLogs = response && response.logs ? response.logs : [];
+            copyToClipboardWithConsole(selectedRequests, consoleLogs);
+        });
+    } else {
+        copyNetworkRequestsToClipboard(selectedRequests);
+    }
+}
+
+// Copy network requests to clipboard
+function copyNetworkRequestsToClipboard(selectedRequests) {
     let text = '';
+    
+    text += 'Network Requests:\n';
+    text += '='.repeat(80) + '\n\n';
     
     selectedRequests.forEach((req, index) => {
         if (index > 0) {
@@ -653,7 +684,98 @@ function copySelected() {
         text += '\n';
     });
     
-    // Copy to clipboard
+    copyTextToClipboard(text);
+}
+
+// Copy network requests and console logs to clipboard
+function copyToClipboardWithConsole(selectedRequests, consoleLogs) {
+    let text = '';
+    
+    // Add console logs section
+    if (consoleLogs.length > 0) {
+        text += 'Console Logs:\n';
+        text += '='.repeat(80) + '\n\n';
+        
+        consoleLogs.forEach((log, index) => {
+            const timestamp = formatConsoleTimestamp(log.timestamp);
+            const level = log.level.toUpperCase();
+            const message = formatConsoleLogMessage(log);
+            const stack = log.stack ? '\n' + log.stack : '';
+            
+            text += `[${timestamp}] [${level}] ${message}${stack}`;
+            if (index < consoleLogs.length - 1) {
+                text += '\n';
+            }
+        });
+        
+        text += '\n\n' + '='.repeat(80) + '\n\n';
+    }
+    
+    // Add network requests section
+    text += 'Network Requests:\n';
+    text += '='.repeat(80) + '\n\n';
+    
+    selectedRequests.forEach((req, index) => {
+        if (index > 0) {
+            text += '\n' + '='.repeat(80) + '\n\n';
+        }
+        
+        text += `Request ${index + 1}:\n`;
+        text += '-'.repeat(80) + '\n';
+        text += `URL: ${req.url}\n`;
+        text += `Method: ${req.method}\n`;
+        text += `Status: ${req.status} ${req.statusText || ''}\n`;
+        text += `Timestamp: ${formatTimestamp(req.timestamp)}\n`;
+        text += '\n';
+        
+        text += 'Payload:\n';
+        text += formatData(req.payload, false);
+        text += '\n\n';
+        
+        text += 'Response:\n';
+        text += formatData(req.response, false);
+        text += '\n';
+    });
+    
+    copyTextToClipboard(text);
+}
+
+// Format console log message for copy
+function formatConsoleLogMessage(log) {
+    if (log.args && log.args.length > 0) {
+        return log.args.map(arg => {
+            if (arg === null) return 'null';
+            if (arg === undefined) return 'undefined';
+            if (typeof arg === 'string' || typeof arg === 'number' || typeof arg === 'boolean') {
+                return String(arg);
+            }
+            if (typeof arg === 'object') {
+                try {
+                    return JSON.stringify(arg, null, 2);
+                } catch (e) {
+                    return String(arg);
+                }
+            }
+            return String(arg);
+        }).join(' ');
+    }
+    return log.message || '';
+}
+
+// Format console timestamp for copy
+function formatConsoleTimestamp(timestamp) {
+    const date = new Date(timestamp);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+// Copy text to clipboard with feedback
+function copyTextToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
         // Show feedback
         const originalText = copySelectedBtn.textContent;
@@ -666,6 +788,15 @@ function copySelected() {
     }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy to clipboard. Please try again.');
+    });
+}
+
+// Open console viewer window
+function openConsoleViewer() {
+    chrome.runtime.sendMessage({ type: 'OPEN_CONSOLE_VIEWER' }, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error('Failed to open console viewer:', chrome.runtime.lastError);
+        }
     });
 }
 

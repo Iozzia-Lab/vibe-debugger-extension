@@ -7,7 +7,9 @@
     "activeTab",
     "storage",
     "scripting",
-    "sidePanel"
+    "sidePanel",
+    "tabs",
+    "windows"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -25,12 +27,11 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["content/injected.js", "sidepanel/sidepanel.html", "sidepanel/sidepanel.css", "sidepanel/sidepanel.js"],
+      "resources": ["content/injected.js", "sidepanel/sidepanel.html", "sidepanel/sidepanel.css", "sidepanel/sidepanel.js", "console-viewer/console-viewer.html", "console-viewer/console-viewer.css", "console-viewer/console-viewer.js"],
       "matches": ["<all_urls>"]
     }
   ],
   "action": {
-    "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

@@ -12,12 +12,51 @@
     return 'req_' + Date.now() + '_' + (++requestIdCounter);
   }
   
+  // Generate unique log ID
+  let logIdCounter = 0;
+  function generateLogId() {
+    return 'log_' + Date.now() + '_' + (++logIdCounter);
+  }
+  
   // Send captured request to content script via postMessage
   function sendToContentScript(data) {
     window.postMessage({
       type: 'NETWORK_CAPTURE_REQUEST',
       data: data
     }, '*');
+  }
+  
+  // Send captured console log to content script via postMessage
+  function sendConsoleLogToContentScript(data) {
+    window.postMessage({
+      type: 'CONSOLE_CAPTURE_LOG',
+      data: data
+    }, '*');
+  }
+  
+  // Format console arguments for storage
+  function formatConsoleArgs(args) {
+    return Array.prototype.slice.call(args).map(function(arg) {
+      if (arg === null) return null;
+      if (arg === undefined) return undefined;
+      if (typeof arg === 'string' || typeof arg === 'number' || typeof arg === 'boolean') {
+        return arg;
+      }
+      if (arg instanceof Error) {
+        return {
+          type: 'Error',
+          message: arg.message,
+          stack: arg.stack,
+          name: arg.name
+        };
+      }
+      // Try to serialize objects/arrays
+      try {
+        return JSON.parse(JSON.stringify(arg));
+      } catch (e) {
+        return String(arg);
+      }
+    });
   }
   
   // Try to parse JSON, return original if fails
@@ -273,6 +312,55 @@
     return xhr;
   };
   
+  // Intercept console methods
+  const originalConsole = {
+    log: console.log,
+    error: console.error,
+    warn: console.warn,
+    info: console.info,
+    debug: console.debug
+  };
+  
+  // Helper function to intercept console method
+  function interceptConsoleMethod(methodName, originalMethod) {
+    console[methodName] = function() {
+      // Call original method first
+      originalMethod.apply(console, arguments);
+      
+      // Capture the log
+      const logId = generateLogId();
+      const timestamp = Date.now();
+      const args = formatConsoleArgs(arguments);
+      
+      // Try to get stack trace for errors
+      let stack = null;
+      if (methodName === 'error' || methodName === 'warn') {
+        try {
+          throw new Error();
+        } catch (e) {
+          stack = e.stack;
+        }
+      }
+      
+      // Send to content script
+      sendConsoleLogToContentScript({
+        id: logId,
+        level: methodName,
+        message: args.length > 0 ? String(args[0]) : '',
+        args: args,
+        timestamp: timestamp,
+        stack: stack
+      });
+    };
+  }
+  
+  // Intercept all console methods
+  interceptConsoleMethod('log', originalConsole.log);
+  interceptConsoleMethod('error', originalConsole.error);
+  interceptConsoleMethod('warn', originalConsole.warn);
+  interceptConsoleMethod('info', originalConsole.info);
+  interceptConsoleMethod('debug', originalConsole.debug);
+  
   // Debug: Log that injection worked
-  console.log('[Network Capture] Injection successful - intercepting fetch and XHR');
+  originalConsole.log('[Network Capture] Injection successful - intercepting fetch, XHR, and console');
 })();

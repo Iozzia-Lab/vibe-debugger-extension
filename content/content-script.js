@@ -15,11 +15,8 @@
       return;
     }
     
-    // Only accept messages with our specific format
-    if (event.data && event.data.type === 'NETWORK_CAPTURE_REQUEST') {
-      console.log('[Network Capture] Received request:', event.data.data.url);
-      
-      // Forward to background service worker (fire-and-forget)
+    // Forward message to background service worker
+    function forwardToBackground(messageType, data) {
       // Wrap everything in try-catch to handle "Extension context invalidated" errors
       try {
         // Check if chrome.runtime exists - accessing it can throw if context is invalidated
@@ -30,8 +27,8 @@
         
         // Try to send message - this can also throw synchronously if context is invalidated
         chrome.runtime.sendMessage({
-          type: 'NETWORK_REQUEST',
-          data: event.data.data
+          type: messageType,
+          data: data
         }).then(function(response) {
           // Response received (or undefined if no response)
           // Ignore it - we don't need to do anything
@@ -57,6 +54,17 @@
         // Other synchronous errors - log but don't break
         console.error('[Network Capture] Error sending message:', errorMsg);
       }
+    }
+    
+    // Only accept messages with our specific format
+    if (event.data && event.data.type === 'NETWORK_CAPTURE_REQUEST') {
+      console.log('[Network Capture] Received request:', event.data.data.url);
+      forwardToBackground('NETWORK_REQUEST', event.data.data);
+    }
+    
+    // Handle console log capture messages
+    if (event.data && event.data.type === 'CONSOLE_CAPTURE_LOG') {
+      forwardToBackground('CONSOLE_LOG', event.data.data);
     }
   });
 })();
