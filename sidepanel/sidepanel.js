@@ -8,6 +8,7 @@ let currentDetailRequest = null;
 let currentFilter = 'all';
 let isContextInvalidated = false;
 let selectedRequestIds = new Set(); // Track selected request IDs
+let currentTabId = null; // Track current tab ID
 
 // DOM Elements
 const requestList = document.getElementById('requestList');
@@ -17,6 +18,7 @@ const requestCount = document.getElementById('requestCount');
 const searchInput = document.getElementById('searchInput');
 const searchHistoryDropdown = document.getElementById('searchHistoryDropdown');
 const recordBtn = document.getElementById('recordBtn');
+const reloadBtn = document.getElementById('reloadBtn');
 const clearBtn = document.getElementById('clearBtn');
 const backBtn = document.getElementById('backBtn');
 const showHeadersDetailCheckbox = document.getElementById('showHeadersDetail');
@@ -35,6 +37,10 @@ const closePanelBtn = document.getElementById('closePanelBtn');
 const copySelectedBtn = document.getElementById('copySelectedBtn');
 const openConsoleViewerBtn = document.getElementById('openConsoleViewerBtn');
 const copyConsoleCheckbox = document.getElementById('copyConsoleCheckbox');
+const tabInfoSection = document.getElementById('tabInfoSection');
+const tabFavicon = document.getElementById('tabFavicon');
+const tabTitle = document.getElementById('tabTitle');
+const tabUrl = document.getElementById('tabUrl');
 let editingProjectId = null;
 
 // Initialize
@@ -44,15 +50,22 @@ document.addEventListener('DOMContentLoaded', () => {
     loadRequests();
     setupEventListeners();
     loadProjects();
+    loadActiveTabInfo();
     updateCopySelectedButton();
     
     // Refresh requests periodically
     setInterval(loadRequests, 1000);
+    
+    // Refresh tab info periodically
+    setInterval(loadActiveTabInfo, 2000);
 });
 
 // Setup event listeners
 function setupEventListeners() {
     recordBtn.addEventListener('click', toggleRecording);
+    if (reloadBtn) {
+        reloadBtn.addEventListener('click', reloadTab);
+    }
     clearBtn.addEventListener('click', clearAllRequests);
     backBtn.addEventListener('click', showListView);
     searchInput.addEventListener('input', filterRequests);
@@ -360,6 +373,22 @@ function toggleRecording() {
         updateRecordingButton();
         // Notify background script
         chrome.runtime.sendMessage({ type: 'SET_RECORDING_STATE', isRecording: isRecording });
+        // Also sync console recording state
+        chrome.storage.local.set({ isConsoleRecording: isRecording }, () => {
+            chrome.runtime.sendMessage({ type: 'SET_CONSOLE_RECORDING_STATE', isRecording: isRecording });
+            // Notify console viewer via background script
+            chrome.runtime.sendMessage({ type: 'NOTIFY_CONSOLE_VIEWER_RECORDING', isRecording: isRecording });
+        });
+    });
+}
+
+// Reload the monitored tab
+function reloadTab() {
+    chrome.runtime.sendMessage({ type: 'RELOAD_PAGE' }, (response) => {
+        if (response && response.success) {
+            // Clear requests after reload
+            clearAllRequests();
+        }
     });
 }
 
@@ -609,6 +638,13 @@ function clearAllRequests() {
             updateRequestCount();
             updateCopySelectedButton();
             renderRequestList();
+        }
+    });
+    // Also clear console logs
+    chrome.runtime.sendMessage({ type: 'CLEAR_CONSOLE_LOGS' }, (response) => {
+        if (response && response.success) {
+            // Notify console viewer via background script
+            chrome.runtime.sendMessage({ type: 'NOTIFY_CONSOLE_VIEWER_CLEAR' });
         }
     });
 }
@@ -1047,4 +1083,67 @@ function closeProjectForm() {
     projectFormModal.classList.add('hidden');
     editingProjectId = null;
     document.getElementById('projectForm').reset();
+}
+
+// ==================== ACTIVE TAB INFO ====================
+
+// Load active tab information
+function loadActiveTabInfo() {
+    if (!chrome.runtime || !chrome.runtime.id) {
+        return;
+    }
+    
+    try {
+        chrome.runtime.sendMessage({ type: 'GET_ACTIVE_TAB_INFO' }, (response) => {
+            if (chrome.runtime.lastError) {
+                return;
+            }
+            
+            if (response && response.tabInfo) {
+                updateTabInfoDisplay(response.tabInfo);
+            } else {
+                updateTabInfoDisplay(null);
+            }
+        });
+    } catch (error) {
+        // Ignore errors
+    }
+}
+
+// Update tab info display
+function updateTabInfoDisplay(tabInfo) {
+    if (!tabInfoSection || !tabTitle || !tabUrl || !tabFavicon) {
+        return;
+    }
+    
+    // Check if tab changed
+    if (tabInfo && tabInfo.id !== currentTabId) {
+        // Tab changed - clear selections
+        selectedRequestIds.clear();
+        updateCopySelectedButton();
+        currentTabId = tabInfo.id;
+    } else if (!tabInfo) {
+        currentTabId = null;
+    }
+    
+    if (!tabInfo) {
+        tabTitle.textContent = 'No active tab';
+        tabUrl.textContent = '-';
+        tabFavicon.style.display = 'none';
+        return;
+    }
+    
+    tabTitle.textContent = tabInfo.title || 'Untitled';
+    tabUrl.textContent = tabInfo.url || '-';
+    
+    if (tabInfo.favIconUrl) {
+        tabFavicon.src = tabInfo.favIconUrl;
+        tabFavicon.style.display = 'block';
+        tabFavicon.onerror = function() {
+            // Hide favicon if it fails to load
+            this.style.display = 'none';
+        };
+    } else {
+        tabFavicon.style.display = 'none';
+    }
 }

@@ -130,6 +130,22 @@ button:active {
     color: #858585;
 }
 
+.btn-reload {
+    background: transparent;
+    border: none;
+    padding: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #d4d4d4;
+    transition: color 0.2s;
+}
+
+.btn-reload:hover {
+    color: #ffffff;
+}
+
 .btn-copy-selected {
     background: #0e639c;
     color: white;
@@ -635,6 +651,54 @@ button:active {
 
 .btn-console-viewer:hover {
     background: #4e4e52;
+}
+
+/* Tab Info Section */
+.tab-info-section {
+    padding: 10px 20px;
+    background: #252526;
+    border-bottom: 1px solid #3e3e42;
+    flex-shrink: 0;
+}
+
+.tab-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.tab-favicon {
+    width: 19px;
+    height: 19px;
+    flex-shrink: 0;
+}
+
+.tab-info-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    line-height: 1.2;
+}
+
+.tab-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.2;
+}
+
+.tab-url {
+    font-size: 11px;
+    color: #858585;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.2;
 }
 
 /* Copy Console Section */

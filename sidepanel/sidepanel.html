@@ -11,17 +11,34 @@
         <!-- Header -->
         <div class="header">
             <div class="header-controls">
+                <button class="btn-projects" id="projectsBtn" title="Manage Projects">📁</button>
+                <button class="btn-console-viewer" id="openConsoleViewerBtn" title="Open Console Viewer">Console</button>
+                <button class="btn-copy-selected" id="copySelectedBtn" disabled>Copy Selected</button>
+                <button class="btn-clear" id="clearBtn">Clear</button>
+                <button class="btn-close-panel" id="closePanelBtn" title="Close Panel">✕</button>
+            </div>
+        </div>
+        
+        <!-- Tab Info Display -->
+        <div class="tab-info-section" id="tabInfoSection">
+            <div class="tab-info">
                 <button class="btn-record" id="recordBtn" title="Toggle Recording">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                         <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
                         <circle cx="8" cy="8" r="3" fill="currentColor"/>
                     </svg>
                 </button>
-                <button class="btn-projects" id="projectsBtn" title="Manage Projects">📁</button>
-                <button class="btn-console-viewer" id="openConsoleViewerBtn" title="Open Console Viewer">Console</button>
-                <button class="btn-copy-selected" id="copySelectedBtn" disabled>Copy Selected</button>
-                <button class="btn-clear" id="clearBtn">Clear</button>
-                <button class="btn-close-panel" id="closePanelBtn" title="Close Panel">✕</button>
+                <button class="btn-reload" id="reloadBtn" title="Reload Tab">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 2.5C10.4853 2.5 12.5 4.51472 12.5 7C12.5 9.48528 10.4853 11.5 8 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+                        <path d="M10.5 5.5L12.5 3.5L10.5 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                    </svg>
+                </button>
+                <img class="tab-favicon" id="tabFavicon" src="" alt="" style="display: none;">
+                <div class="tab-info-text">
+                    <span class="tab-title" id="tabTitle">Loading...</span>
+                    <span class="tab-url" id="tabUrl">-</span>
+                </div>
             </div>
         </div>
         

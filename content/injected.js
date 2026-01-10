@@ -361,6 +361,123 @@
   interceptConsoleMethod('info', originalConsole.info);
   interceptConsoleMethod('debug', originalConsole.debug);
   
+  // Generate XPath from DOM element
+  function getXPath(element) {
+    if (element.id) {
+      return `//*[@id="${element.id}"]`;
+    }
+    const parts = [];
+    let current = element;
+    while (current && current.nodeType === Node.ELEMENT_NODE) {
+      let index = 1;
+      let sibling = current.previousElementSibling;
+      while (sibling) {
+        if (sibling.tagName === current.tagName) index++;
+        sibling = sibling.previousElementSibling;
+      }
+      const tagName = current.tagName.toLowerCase();
+      parts.unshift(`${tagName}[${index}]`);
+      current = current.parentElement;
+    }
+    return '/' + parts.join('/');
+  }
+  
+  // Extract element label/text
+  function getElementLabel(element) {
+    // Try aria-label first
+    if (element.getAttribute('aria-label')) {
+      return element.getAttribute('aria-label').trim();
+    }
+    // Try title
+    if (element.title) {
+      return element.title.trim();
+    }
+    // Try text content
+    const text = element.innerText || element.textContent;
+    if (text && text.trim()) {
+      const trimmed = text.trim();
+      return trimmed.length > 100 ? trimmed.substring(0, 100) + '...' : trimmed;
+    }
+    // Try value (for inputs, buttons)
+    if (element.value) {
+      return element.value.trim();
+    }
+    // Try alt (for images)
+    if (element.alt) {
+      return element.alt.trim();
+    }
+    // Fallback to tag name
+    return element.tagName.toLowerCase();
+  }
+  
+  // Format click comment string
+  function formatClickComment(element) {
+    const label = getElementLabel(element);
+    const xpath = getXPath(element);
+    const id = element.id || 'none';
+    const classes = element.className && typeof element.className === 'string' 
+      ? element.className.trim() 
+      : (element.classList && element.classList.length > 0 
+          ? Array.from(element.classList).join(' ') 
+          : 'none');
+    
+    return `// clicked on ${label} | XPath: ${xpath} | ID: ${id} | Classes: ${classes}`;
+  }
+  
+  // Click event handler
+  function handleClick(event) {
+    try {
+      const element = event.target;
+      
+      // Skip if clicking on our own injected elements (if any)
+      if (!element || element.nodeType !== Node.ELEMENT_NODE) {
+        return;
+      }
+      
+      // Format and log comment
+      const comment = formatClickComment(element);
+      
+      // Log through console.log (our intercepted version) which will be captured
+      console.log(comment);
+    } catch (e) {
+      // Log error but don't break page functionality
+      if (originalConsole && originalConsole.error) {
+        originalConsole.error('[Network Capture] Error capturing click:', e, e.stack);
+      }
+    }
+  }
+  
+  
+  // Track if listener is already attached
+  let clickListenerAttached = false;
+  
+  // Add click event listener
+  function setupClickCapture() {
+    if (clickListenerAttached) {
+      return; // Already attached
+    }
+    
+    try {
+      // Use document with capture phase to catch all clicks
+      document.addEventListener('click', handleClick, true);
+      clickListenerAttached = true;
+      originalConsole.log('[Network Capture] Click listener attached');
+    } catch (e) {
+      originalConsole.error('[Network Capture] Failed to attach click listener:', e);
+    }
+  }
+  
+  // Try to attach immediately (works at document_start)
+  setupClickCapture();
+  
+  // Also attach when DOM is ready (backup)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupClickCapture, { once: true });
+  }
+  
+  // Also try when window loads (final backup)
+  window.addEventListener('load', setupClickCapture, { once: true });
+  
   // Debug: Log that injection worked
-  originalConsole.log('[Network Capture] Injection successful - intercepting fetch, XHR, and console');
+  originalConsole.log('[Network Capture] Injection successful - intercepting fetch, XHR, console, and clicks');
 })();

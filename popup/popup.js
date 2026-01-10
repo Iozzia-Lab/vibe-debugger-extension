@@ -6,6 +6,7 @@ let allRequests = [];
 let filteredRequests = [];
 let currentDetailRequest = null;
 let currentFilter = 'all';
+let isContextInvalidated = false;
 
 // DOM Elements
 const requestList = document.getElementById('requestList');
@@ -13,12 +14,12 @@ const listView = document.getElementById('listView');
 const detailView = document.getElementById('detailView');
 const requestCount = document.getElementById('requestCount');
 const searchInput = document.getElementById('searchInput');
+const searchHistoryDropdown = document.getElementById('searchHistoryDropdown');
+const recordBtn = document.getElementById('recordBtn');
 const clearBtn = document.getElementById('clearBtn');
 const backBtn = document.getElementById('backBtn');
-const showHeadersCheckbox = document.getElementById('showHeaders');
 const showHeadersDetailCheckbox = document.getElementById('showHeadersDetail');
 const searchSection = document.getElementById('searchSection');
-const dockBtn = document.getElementById('dockBtn');
 const projectsBtn = document.getElementById('projectsBtn');
 const projectsModal = document.getElementById('projectsModal');
 const projectsList = document.getElementById('projectsList');
@@ -33,6 +34,7 @@ let editingProjectId = null;
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     loadFilterState();
+    loadRecordingState();
     loadRequests();
     setupEventListeners();
     // Load projects after setup (function is defined later)
@@ -46,14 +48,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Setup event listeners
 function setupEventListeners() {
+    recordBtn.addEventListener('click', toggleRecording);
     clearBtn.addEventListener('click', clearAllRequests);
     backBtn.addEventListener('click', showListView);
     searchInput.addEventListener('input', filterRequests);
-    
-    // Dock to side panel
-    if (dockBtn) {
-        dockBtn.addEventListener('click', dockToSidePanel);
-    }
     
     // Projects button
     if (projectsBtn) {
@@ -116,17 +114,8 @@ function setupEventListeners() {
         });
     });
     
-    // Sync both checkboxes and toggle headers
-    showHeadersCheckbox.addEventListener('change', () => {
-        if (showHeadersDetailCheckbox) {
-            showHeadersDetailCheckbox.checked = showHeadersCheckbox.checked;
-        }
-        toggleHeaders();
-    });
-    
     if (showHeadersDetailCheckbox) {
         showHeadersDetailCheckbox.addEventListener('change', () => {
-            showHeadersCheckbox.checked = showHeadersDetailCheckbox.checked;
             toggleHeaders();
         });
     }
@@ -140,44 +129,12 @@ function setupEventListeners() {
     });
 }
 
-// Dock to side panel
-function dockToSidePanel() {
-    // Check if extension context is still valid
-    if (!chrome.runtime || !chrome.runtime.id) {
-        console.warn('[Network Capture] Extension context invalidated. Please reload the page.');
-        return;
-    }
-    
-    try {
-        // Use Chrome Side Panel API
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (chrome.runtime.lastError) {
-                console.warn('[Network Capture] Error:', chrome.runtime.lastError.message);
-                return;
-            }
-            
-            if (tabs[0]) {
-                chrome.windows.get(tabs[0].windowId, (window) => {
-                    chrome.sidePanel.open({ windowId: window.id }, () => {
-                        if (chrome.runtime.lastError) {
-                            console.warn('[Network Capture] Error opening side panel:', chrome.runtime.lastError.message);
-                            return;
-                        }
-                        // Popup will close automatically when side panel opens
-                    });
-                });
-            }
-        });
-    } catch (error) {
-        console.warn('[Network Capture] Error docking to side panel:', error);
-    }
-}
-
 // Load requests from background service worker
 function loadRequests() {
     // Check if extension context is still valid
     if (!chrome.runtime || !chrome.runtime.id) {
-        console.warn('[Network Capture] Extension context invalidated. Please reload the page.');
+        isContextInvalidated = true;
+        renderRequestList(); // Re-render to show reload button
         return;
     }
     
@@ -185,9 +142,20 @@ function loadRequests() {
         chrome.runtime.sendMessage({ type: 'GET_REQUESTS' }, (response) => {
             // Check for runtime errors
             if (chrome.runtime.lastError) {
-                console.warn('[Network Capture] Error:', chrome.runtime.lastError.message);
+                const errorMsg = chrome.runtime.lastError.message || '';
+                if (errorMsg.includes('Extension context invalidated') || 
+                    errorMsg.includes('context invalidated') ||
+                    errorMsg.includes('Receiving end does not exist')) {
+                    isContextInvalidated = true;
+                    renderRequestList(); // Re-render to show reload button
+                    return;
+                }
+                console.warn('[Network Capture] Error:', errorMsg);
                 return;
             }
+            
+            // Context is valid
+            isContextInvalidated = false;
             
             if (response && response.requests) {
                 allRequests = response.requests;
@@ -196,7 +164,14 @@ function loadRequests() {
             }
         });
     } catch (error) {
-        console.warn('[Network Capture] Error loading requests:', error);
+        const errorMsg = error ? (error.message || String(error)) : 'Unknown error';
+        if (errorMsg.includes('Extension context invalidated') || 
+            errorMsg.includes('context invalidated')) {
+            isContextInvalidated = true;
+            renderRequestList(); // Re-render to show reload button
+        } else {
+            console.warn('[Network Capture] Error loading requests:', error);
+        }
     }
 }
 
@@ -251,17 +226,26 @@ function applyFilters() {
     if (currentFilter !== 'all') {
         requests = requests.filter(req => {
             const url = req.url.toLowerCase();
+            const method = req.method ? req.method.toLowerCase() : '';
             const contentType = (req.responseHeaders && req.responseHeaders['content-type']) ? 
                                req.responseHeaders['content-type'].toLowerCase() : '';
             
             switch (currentFilter) {
                 case 'fetch':
-                    // Filter for API calls (JSON responses or common API patterns)
-                    return contentType.includes('application/json') || 
-                           contentType.includes('application/xml') ||
-                           url.includes('/api/') ||
-                           url.includes('/rest/') ||
-                           url.includes('/graphql');
+                    // Filter for API calls - exclude static assets
+                    const isImage = contentType.includes('image/') || url.match(/\.(png|jpg|jpeg|gif|svg|webp|ico|bmp)(\?|$)/i);
+                    const isFont = contentType.includes('font/') || url.match(/\.(woff|woff2|ttf|otf|eot)(\?|$)/i);
+                    const isStylesheet = contentType.includes('text/css') || url.endsWith('.css');
+                    const isScript = contentType.includes('javascript') || url.match(/\.(js|mjs)(\?|$)/i);
+                    
+                    // Exclude static assets
+                    if (isImage || isFont || isStylesheet || isScript) {
+                        return false;
+                    }
+                    
+                    // Include everything else (all non-static requests are potential API calls)
+                    // This includes GET requests that return JSON/XML/HTML, and all POST/PUT/PATCH/DELETE
+                    return true;
                 case 'css':
                     return url.endsWith('.css') || contentType.includes('text/css');
                 case 'js':
@@ -289,6 +273,9 @@ function applyFilters() {
     // Apply search filter - support comma-separated terms (OR logic)
     const searchValue = searchInput.value.trim();
     if (searchValue) {
+        // Save to search history when filtering
+        saveSearchHistory(searchValue);
+        
         // Split by comma and trim each term
         const searchTerms = searchValue.split(',').map(term => term.trim().toLowerCase()).filter(term => term.length > 0);
         
@@ -318,6 +305,24 @@ function filterRequests() {
 
 // Render request list
 function renderRequestList() {
+    // Show reload button if context is invalidated
+    if (isContextInvalidated) {
+        requestList.innerHTML = `
+            <div class="empty-state">
+                <p>Extension context invalidated</p>
+                <p class="hint">Please reload the page to start capturing network requests.</p>
+                <button class="btn-reload-page" id="reloadPageBtn">Reload Page</button>
+            </div>
+        `;
+        
+        // Add reload button listener
+        const reloadBtn = document.getElementById('reloadPageBtn');
+        if (reloadBtn) {
+            reloadBtn.addEventListener('click', reloadCurrentPage);
+        }
+        return;
+    }
+    
     if (filteredRequests.length === 0) {
         requestList.innerHTML = `
             <div class="empty-state">
@@ -328,20 +333,21 @@ function renderRequestList() {
         return;
     }
     
-    requestList.innerHTML = filteredRequests.map(req => {
+    requestList.innerHTML = filteredRequests.map((req, index) => {
         const statusClass = getStatusClass(req.status);
         const uriPath = getUriPath(req.url);
+        const separator = index > 0 ? '<div class="request-separator"></div>' : '';
         
-        return `
-            <div class="request-item" data-request-id="${req.id}">
-                <span class="request-url" title="${escapeHtml(req.url)}">${escapeHtml(uriPath)}</span>
-                <span class="request-status ${statusClass}">${req.status}</span>
+        return `${separator}
+            <div class="request-item-text" data-request-id="${req.id}" title="${escapeHtml(req.url)}">
+                <span class="request-url-text">${escapeHtml(uriPath)}</span>
+                <span class="request-status-text ${statusClass}">${req.status}</span>
             </div>
         `;
     }).join('');
     
     // Add click listeners to request items
-    requestList.querySelectorAll('.request-item').forEach(item => {
+    requestList.querySelectorAll('.request-item-text').forEach(item => {
         item.addEventListener('click', () => {
             const requestId = item.getAttribute('data-request-id');
             const request = filteredRequests.find(r => r.id === requestId);
@@ -359,10 +365,6 @@ function showDetailView(request) {
     detailView.classList.remove('hidden');
     searchSection.classList.add('hidden');
     
-    // Sync checkbox state
-    if (showHeadersDetailCheckbox && showHeadersCheckbox) {
-        showHeadersDetailCheckbox.checked = showHeadersCheckbox.checked;
-    }
     
     // Populate detail view
     document.getElementById('detailUrl').textContent = request.url;
@@ -387,9 +389,8 @@ function showDetailView(request) {
 function updateHeadersDisplay() {
     if (!currentDetailRequest) return;
     
-    // Get checked state from either checkbox (they should be synced)
-    const showHeaders = showHeadersCheckbox ? showHeadersCheckbox.checked : 
-                       (showHeadersDetailCheckbox ? showHeadersDetailCheckbox.checked : false);
+    // Get checked state from detail checkbox
+    const showHeaders = showHeadersDetailCheckbox ? showHeadersDetailCheckbox.checked : false;
     const requestHeadersSection = document.getElementById('requestHeadersSection');
     const responseHeadersSection = document.getElementById('responseHeadersSection');
     
@@ -422,17 +423,15 @@ function showListView() {
 
 // Clear all requests
 function clearAllRequests() {
-    if (confirm('Clear all captured requests?')) {
-        chrome.runtime.sendMessage({ type: 'CLEAR_REQUESTS' }, (response) => {
-            if (response && response.success) {
-                allRequests = [];
-                filteredRequests = [];
-                searchInput.value = '';
-                updateRequestCount();
-                renderRequestList();
-            }
-        });
-    }
+    chrome.runtime.sendMessage({ type: 'CLEAR_REQUESTS' }, (response) => {
+        if (response && response.success) {
+            allRequests = [];
+            filteredRequests = [];
+            searchInput.value = '';
+            updateRequestCount();
+            renderRequestList();
+        }
+    });
 }
 
 // Copy to clipboard
@@ -682,4 +681,106 @@ function closeProjectForm() {
     projectFormModal.classList.add('hidden');
     editingProjectId = null;
     document.getElementById('projectForm').reset();
+}
+
+// Search History Functions
+function saveSearchHistory(searchTerm) {
+    if (!searchTerm || searchTerm.length === 0) return;
+    
+    chrome.storage.local.get(['searchHistory'], (result) => {
+        let history = result.searchHistory || [];
+        
+        // Remove if already exists (to move to top)
+        history = history.filter(item => item !== searchTerm);
+        
+        // Add to beginning
+        history.unshift(searchTerm);
+        
+        // Limit to 10 items
+        if (history.length > 10) {
+            history = history.slice(0, 10);
+        }
+        
+        chrome.storage.local.set({ searchHistory: history }, () => {
+            // Update dropdown if visible
+            if (!searchHistoryDropdown.classList.contains('hidden')) {
+                renderSearchHistory();
+            }
+        });
+    });
+}
+
+function loadSearchHistory() {
+    chrome.storage.local.get(['searchHistory'], (result) => {
+        const history = result.searchHistory || [];
+        return history;
+    });
+}
+
+function renderSearchHistory() {
+    chrome.storage.local.get(['searchHistory'], (result) => {
+        const history = result.searchHistory || [];
+        
+        if (history.length === 0) {
+            searchHistoryDropdown.classList.add('hidden');
+            return;
+        }
+        
+        searchHistoryDropdown.innerHTML = history.map(term => `
+            <div class="search-history-item">
+                <span class="search-history-item-text" data-term="${escapeHtml(term)}">${escapeHtml(term)}</span>
+                <button class="search-history-item-delete" data-term="${escapeHtml(term)}" title="Remove">✕</button>
+            </div>
+        `).join('');
+        
+        // Add click listeners
+        searchHistoryDropdown.querySelectorAll('.search-history-item-text').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const term = e.target.getAttribute('data-term');
+                searchInput.value = term;
+                filterRequests();
+                hideSearchHistory();
+                searchInput.focus();
+            });
+        });
+        
+        // Add delete listeners
+        searchHistoryDropdown.querySelectorAll('.search-history-item-delete').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const term = e.target.getAttribute('data-term');
+                deleteSearchHistoryItem(term);
+            });
+        });
+        
+        searchHistoryDropdown.classList.remove('hidden');
+    });
+}
+
+function deleteSearchHistoryItem(term) {
+    chrome.storage.local.get(['searchHistory'], (result) => {
+        let history = result.searchHistory || [];
+        history = history.filter(item => item !== term);
+        
+        chrome.storage.local.set({ searchHistory: history }, () => {
+            renderSearchHistory();
+        });
+    });
+}
+
+function showSearchHistory() {
+    renderSearchHistory();
+}
+
+function hideSearchHistory() {
+    searchHistoryDropdown.classList.add('hidden');
+}
+
+// Reload current page
+function reloadCurrentPage() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]) {
+            chrome.tabs.reload(tabs[0].id);
+        }
+    });
 }

@@ -12,13 +12,13 @@
         <div class="header">
             <h1>Network Capture</h1>
             <div class="header-controls">
-                <button class="btn-projects" id="projectsBtn" title="Manage Projects">📁</button>
-                <button class="btn-dock" id="dockBtn" title="Dock to Right">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <rect x="0" y="0" width="7" height="16" fill="currentColor" opacity="0.3"/>
-                        <rect x="9" y="0" width="7" height="16" fill="currentColor"/>
+                <button class="btn-record" id="recordBtn" title="Toggle Recording">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+                        <circle cx="8" cy="8" r="3" fill="currentColor"/>
                     </svg>
                 </button>
+                <button class="btn-projects" id="projectsBtn" title="Manage Projects">📁</button>
                 <button class="btn-clear" id="clearBtn">Clear</button>
             </div>
         </div>
@@ -84,11 +84,10 @@
         
         <!-- Search/Filter -->
         <div class="search-section" id="searchSection">
-            <input type="text" id="searchInput" placeholder="Search by URL (comma-separated)..." class="search-input">
-            <label class="toggle-headers">
-                <input type="checkbox" id="showHeaders">
-                <span>Show Headers</span>
-            </label>
+            <div class="search-input-wrapper">
+                <input type="text" id="searchInput" placeholder="Search by URL (comma-separated)..." class="search-input">
+                <div class="search-history-dropdown hidden" id="searchHistoryDropdown"></div>
+            </div>
         </div>
         
         <!-- Request List View -->
