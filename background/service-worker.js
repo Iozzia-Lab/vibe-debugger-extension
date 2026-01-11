@@ -177,6 +177,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false; // Synchronous response sent
   }
   
+  if (message.type === 'GET_MONITORED_TAB_ID') {
+    // Return monitored tab ID
+    sendResponse({ tabId: monitoredTabId });
+    return false; // Synchronous response sent
+  }
+  
   if (message.type === 'OPEN_POPUP') {
     // Open the popup
     chrome.action.openPopup();

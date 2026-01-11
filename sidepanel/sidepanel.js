@@ -24,6 +24,7 @@ const backBtn = document.getElementById('backBtn');
 const showHeadersDetailCheckbox = document.getElementById('showHeadersDetail');
 const searchSection = document.getElementById('searchSection');
 const copyDetailBtn = document.getElementById('copyDetailBtn');
+const screenshotBtn = document.getElementById('screenshotBtn');
 const undockBtn = document.getElementById('undockBtn');
 const projectsBtn = document.getElementById('projectsBtn');
 const projectsModal = document.getElementById('projectsModal');
@@ -114,6 +115,15 @@ function setupEventListeners() {
         console.log('Copy detail button event listener attached');
     } else {
         console.error('copyDetailBtn not found in DOM');
+    }
+    
+    // Screenshot button
+    if (screenshotBtn) {
+        screenshotBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            takeScreenshot();
+        });
     }
     
     // Copy Console checkbox change event
@@ -1956,6 +1966,96 @@ function updateTabInfoDisplay(tabInfo) {
     } else {
         tabFavicon.style.display = 'none';
     }
+}
+
+// Take screenshot of visible tab content and copy to clipboard
+function takeScreenshot() {
+    // Get the monitored tab ID from background script
+    chrome.runtime.sendMessage({ type: 'GET_MONITORED_TAB_ID' }, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error('Error getting monitored tab:', chrome.runtime.lastError);
+            // Fallback to current window
+            captureCurrentWindow();
+            return;
+        }
+        
+        const monitoredTabId = response && response.tabId;
+        
+        if (monitoredTabId) {
+            // Get the window ID for the monitored tab
+            chrome.tabs.get(monitoredTabId, (tab) => {
+                if (chrome.runtime.lastError || !tab) {
+                    console.error('Error getting tab:', chrome.runtime.lastError);
+                    captureCurrentWindow();
+                    return;
+                }
+                
+                const windowId = tab.windowId;
+                captureTabScreenshot(windowId);
+            });
+        } else {
+            // No monitored tab, capture current window
+            captureCurrentWindow();
+        }
+    });
+}
+
+// Capture screenshot from current window
+function captureCurrentWindow() {
+    chrome.windows.getCurrent((window) => {
+        if (chrome.runtime.lastError || !window) {
+            console.error('Error getting current window:', chrome.runtime.lastError);
+            alert('Failed to get current window. Please try again.');
+            return;
+        }
+        
+        captureTabScreenshot(window.id);
+    });
+}
+
+// Capture screenshot and copy to clipboard
+function captureTabScreenshot(windowId) {
+    // Capture visible tab in the specified window
+    chrome.tabs.captureVisibleTab(windowId, { format: 'png' }, (dataUrl) => {
+        if (chrome.runtime.lastError) {
+            console.error('Error capturing screenshot:', chrome.runtime.lastError);
+            alert('Failed to capture screenshot. Please try again.');
+            return;
+        }
+        
+        if (!dataUrl) {
+            console.error('No screenshot data received');
+            alert('Failed to capture screenshot. Please try again.');
+            return;
+        }
+        
+        // Convert data URL to Blob
+        fetch(dataUrl)
+            .then(res => res.blob())
+            .then(blob => {
+                // Copy blob to clipboard
+                const item = new ClipboardItem({ 'image/png': blob });
+                navigator.clipboard.write([item]).then(() => {
+                    // Show visual feedback
+                    if (screenshotBtn) {
+                        const originalHTML = screenshotBtn.innerHTML;
+                        screenshotBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                        screenshotBtn.classList.add('screenshot-success');
+                        setTimeout(() => {
+                            screenshotBtn.innerHTML = originalHTML;
+                            screenshotBtn.classList.remove('screenshot-success');
+                        }, 1500);
+                    }
+                }).catch(err => {
+                    console.error('Failed to copy screenshot to clipboard:', err);
+                    alert('Failed to copy screenshot to clipboard. Please try again.');
+                });
+            })
+            .catch(err => {
+                console.error('Error converting screenshot:', err);
+                alert('Failed to process screenshot. Please try again.');
+            });
+    });
 }
 
 // Animate loading dots for pending requests
