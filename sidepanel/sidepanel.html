@@ -108,29 +108,29 @@
         
         <!-- Copy Console Checkbox -->
         <div class="copy-console-section">
+            <button class="btn-copy" id="copySelectedBtn">COPY</button>
             <label class="copy-console-label">
                 <input type="checkbox" id="copyConsoleCheckbox" checked>
                 <span>Copy Console</span>
             </label>
-            <button class="btn-copy" id="copySelectedBtn">COPY</button>
             <div class="console-stats" id="consoleStats"></div>
         </div>
         
-        <!-- Filter Buttons -->
-        <div class="filter-buttons" id="filterButtons">
-            <button class="filter-btn active" data-filter="all">All</button>
-            <button class="filter-btn" data-filter="fetch">Fetch/XHR</button>
-            <button class="filter-btn" data-filter="css">CSS</button>
-            <button class="filter-btn" data-filter="js">JS</button>
-            <button class="filter-btn" data-filter="font">Font</button>
-            <button class="filter-btn" data-filter="img">IMG</button>
-        </div>
-        
-        <!-- Search/Filter -->
-        <div class="search-section" id="searchSection">
-            <div class="search-input-wrapper">
-                <input type="text" id="searchInput" placeholder="Search by URL (comma-separated)..." class="search-input">
-                <div class="search-history-dropdown hidden" id="searchHistoryDropdown"></div>
+        <!-- Filter and Search Container -->
+        <div class="filter-search-container" id="filterSearchContainer">
+            <div class="filter-buttons" id="filterButtons">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="fetch">Fetch/XHR</button>
+                <button class="filter-btn" data-filter="css">CSS</button>
+                <button class="filter-btn" data-filter="js">JS</button>
+                <button class="filter-btn" data-filter="font">Font</button>
+                <button class="filter-btn" data-filter="img">IMG</button>
+            </div>
+            <div class="search-section" id="searchSection">
+                <div class="search-input-wrapper">
+                    <input type="text" id="searchInput" placeholder="Search by URL (comma-separated)..." class="search-input">
+                    <div class="search-history-dropdown hidden" id="searchHistoryDropdown"></div>
+                </div>
             </div>
         </div>
         
@@ -149,11 +149,11 @@
         <div class="view hidden" id="detailView">
             <div class="detail-header">
                 <button class="btn-back" id="backBtn">← Back</button>
-                <h2 id="detailTitle">Request Details</h2>
                 <label class="toggle-headers">
                     <input type="checkbox" id="showHeadersDetail">
                     <span>Show Headers</span>
                 </label>
+                <button class="btn-copy" id="copyDetailBtn">Copy</button>
             </div>
             
             <div class="detail-content">

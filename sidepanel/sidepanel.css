@@ -257,15 +257,21 @@ button:active {
     background: #4e4e52;
 }
 
-/* Filter Buttons */
-.filter-buttons {
+/* Filter and Search Container */
+.filter-search-container {
     padding: 6px 12px;
-    background: #252526;
+    background: #1e1e1e;
     border-bottom: 1px solid #3e3e42;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.filter-buttons {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
-    flex-shrink: 0;
 }
 
 .filter-btn {
@@ -297,13 +303,9 @@ button:active {
 
 /* Search Section */
 .search-section {
-    padding: 12px 20px;
-    background: #252526;
-    border-bottom: 1px solid #3e3e42;
     display: flex;
     gap: 15px;
     align-items: center;
-    flex-shrink: 0;
 }
 
 .search-input-wrapper {
@@ -478,6 +480,11 @@ button:active {
     accent-color: #0e639c;
 }
 
+.request-checkbox:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
 .request-item-text:hover {
     background: rgba(255, 255, 255, 0.05);
 }
@@ -569,13 +576,9 @@ button:active {
     align-items: center;
     gap: 15px;
     flex-shrink: 0;
-}
-
-.detail-header h2 {
-    font-size: 16px;
-    font-weight: 600;
-    color: #ffffff;
-    flex: 1;
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 .detail-header .toggle-headers {
@@ -817,7 +820,6 @@ button:active {
     font-size: 12px;
     font-weight: 500;
     transition: background 0.2s;
-    margin-left: auto;
 }
 
 .btn-copy:hover:not(:disabled) {

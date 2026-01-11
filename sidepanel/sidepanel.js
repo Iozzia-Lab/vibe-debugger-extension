@@ -23,6 +23,7 @@ const clearBtn = document.getElementById('clearBtn');
 const backBtn = document.getElementById('backBtn');
 const showHeadersDetailCheckbox = document.getElementById('showHeadersDetail');
 const searchSection = document.getElementById('searchSection');
+const copyDetailBtn = document.getElementById('copyDetailBtn');
 const undockBtn = document.getElementById('undockBtn');
 const projectsBtn = document.getElementById('projectsBtn');
 const projectsModal = document.getElementById('projectsModal');
@@ -64,9 +65,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateActiveProjectDisplay();
     updateReloadButton();
     
-    // Refresh requests frequently to catch pending requests immediately
-    // Reduced to 100ms for near real-time updates
-    setInterval(loadRequests, 100);
+    // Refresh requests periodically (500ms balance between responsiveness and performance)
+    setInterval(loadRequests, 500);
     
     // Refresh tab info periodically
     setInterval(() => {
@@ -101,6 +101,26 @@ function setupEventListeners() {
     // Copy Selected button
     if (copySelectedBtn) {
         copySelectedBtn.addEventListener('click', copySelected);
+    }
+    
+    // Copy Detail button
+    if (copyDetailBtn) {
+        copyDetailBtn.addEventListener('click', (e) => {
+            console.log('Copy detail button clicked');
+            e.preventDefault();
+            e.stopPropagation();
+            copyDetailRequest(e);
+        });
+        console.log('Copy detail button event listener attached');
+    } else {
+        console.error('copyDetailBtn not found in DOM');
+    }
+    
+    // Copy Console checkbox change event
+    if (copyConsoleCheckbox) {
+        copyConsoleCheckbox.addEventListener('change', () => {
+            updateConsoleStats();
+        });
     }
     
     // Open Console Viewer button
@@ -329,6 +349,7 @@ function hideSearchHistory() {
 
 // Load requests from background service worker
 let lastRequestCount = 0;
+let lastRequestIds = new Set(); // Track request IDs to detect actual changes
 
 function loadRequests() {
     // Check if extension context is still valid
@@ -359,20 +380,45 @@ function loadRequests() {
             
             if (response && response.requests) {
                 const currentRequestCount = response.requests.length;
+                const currentRequestIds = new Set(response.requests.map(r => r.id));
+                
+                // Check if requests actually changed (new requests or status changes)
                 const hasNewRequests = currentRequestCount > lastRequestCount;
+                const hasNewIds = [...currentRequestIds].some(id => !lastRequestIds.has(id));
                 
-                allRequests = response.requests;
-                // Re-apply filters after loading requests
-                applyFilters();
-                updateCopySelectedButton();
-                updateConsoleStats();
+                // Check if any existing requests changed status (pending -> complete)
+                let hasStatusChanges = false;
+                if (!hasNewIds && currentRequestCount === lastRequestCount && allRequests.length > 0) {
+                    // Compare status of existing requests
+                    const oldRequestsMap = new Map(allRequests.map(r => [r.id, r]));
+                    hasStatusChanges = response.requests.some(newReq => {
+                        const oldReq = oldRequestsMap.get(newReq.id);
+                        if (!oldReq) return false;
+                        const oldPending = oldReq.pending === true || oldReq.status === null || oldReq.status === undefined;
+                        const newPending = newReq.pending === true || newReq.status === null || newReq.status === undefined;
+                        return oldPending !== newPending || oldReq.status !== newReq.status;
+                    });
+                }
                 
-                // Update count after processing
-                lastRequestCount = currentRequestCount;
-                
-                // If new requests arrived, immediately refresh again to catch pending ones
-                if (hasNewRequests) {
-                    setTimeout(loadRequests, 50);
+                // Only update if something actually changed
+                if (hasNewRequests || hasNewIds || hasStatusChanges) {
+                    allRequests = response.requests;
+                    // Re-apply filters after loading requests
+                    applyFilters();
+                    updateCopySelectedButton();
+                    updateConsoleStats();
+                    
+                    // Update tracking
+                    lastRequestCount = currentRequestCount;
+                    lastRequestIds = currentRequestIds;
+                    
+                    // If new requests arrived, immediately refresh again to catch pending ones
+                    if (hasNewRequests || hasNewIds) {
+                        setTimeout(loadRequests, 200);
+                    }
+                } else {
+                    // No changes, just update stats (don't re-render)
+                    updateConsoleStats();
                 }
             }
         });
@@ -390,8 +436,7 @@ function loadRequests() {
 
 // Update request count display
 function updateRequestCount() {
-    // Count is now displayed inline in the request list, so we just re-render the list
-    renderRequestList();
+    // Count display removed - function kept for compatibility but does nothing
 }
 
 // Set filter type
@@ -634,11 +679,8 @@ function renderRequestList() {
         return;
     }
     
-    const count = filteredRequests.length;
-    const countHtml = `<div class="request-count-inline" id="requestCount">${count} request${count !== 1 ? 's' : ''}</div>`;
-    
     if (filteredRequests.length === 0) {
-        requestList.innerHTML = countHtml + `
+        requestList.innerHTML = `
             <div class="empty-state">
                 <p>No requests found.</p>
                 ${searchInput.value ? '<p class="hint">Try a different search term.</p>' : ''}
@@ -647,12 +689,19 @@ function renderRequestList() {
         return;
     }
     
-    requestList.innerHTML = countHtml + filteredRequests.map((req, index) => {
+    requestList.innerHTML = filteredRequests.map((req, index) => {
         const isPending = req.pending === true || req.status === null || req.status === undefined;
         const statusClass = isPending ? 'pending' : getStatusClass(req.status);
         const uriPath = getUriPath(req.url);
         const separator = index > 0 ? '<div class="request-separator"></div>' : '';
-        const isChecked = selectedRequestIds.has(req.id);
+        
+        // Remove pending requests from selection (can't copy incomplete requests)
+        if (isPending && selectedRequestIds.has(req.id)) {
+            selectedRequestIds.delete(req.id);
+        }
+        
+        const isChecked = !isPending && selectedRequestIds.has(req.id);
+        const disabledAttr = isPending ? 'disabled' : '';
         
         // Show loading indicator for pending requests
         const statusDisplay = isPending 
@@ -661,7 +710,7 @@ function renderRequestList() {
         
         return `${separator}
             <div class="request-item-text" data-request-id="${req.id}" title="${escapeHtml(req.url)}">
-                <input type="checkbox" class="request-checkbox" data-request-id="${req.id}" ${isChecked ? 'checked' : ''}>
+                <input type="checkbox" class="request-checkbox" data-request-id="${req.id}" ${isChecked ? 'checked' : ''} ${disabledAttr}>
                 <span class="request-url-text" data-request-id="${req.id}">${escapeHtml(uriPath)}</span>
                 ${statusDisplay}
             </div>
@@ -672,6 +721,11 @@ function renderRequestList() {
     requestList.querySelectorAll('.request-checkbox').forEach(checkbox => {
         checkbox.addEventListener('click', (e) => {
             e.stopPropagation();
+            // Don't process clicks on disabled checkboxes
+            if (checkbox.disabled) {
+                e.preventDefault();
+                return;
+            }
             const requestId = checkbox.getAttribute('data-request-id');
             if (checkbox.checked) {
                 selectedRequestIds.add(requestId);
@@ -679,6 +733,7 @@ function renderRequestList() {
                 selectedRequestIds.delete(requestId);
             }
             updateCopySelectedButton();
+            updateConsoleStats(); // Update stats when selection changes
         });
     });
     
@@ -1163,49 +1218,97 @@ function updateCopySelectedButton() {
     }
 }
 
-// Update console stats display
+// Update copy stats display (network requests + console logs)
 function updateConsoleStats() {
-    if (!consoleStats || !copyConsoleCheckbox || !copyConsoleCheckbox.checked) {
-        if (consoleStats) {
-            consoleStats.textContent = '';
-        }
+    if (!consoleStats) {
         return;
     }
     
-    chrome.runtime.sendMessage({ type: 'GET_CONSOLE_LOGS' }, (response) => {
-        if (chrome.runtime.lastError || !response || !response.logs) {
-            if (consoleStats) {
-                consoleStats.textContent = '';
-            }
-            return;
-        }
-        
-        const consoleLogs = response.logs || [];
-        if (consoleLogs.length === 0) {
-            if (consoleStats) {
-                consoleStats.textContent = '';
-            }
-            return;
-        }
-        
-        // Calculate lines and token size
-        let totalLines = 0;
-        let totalTokens = 0;
-        
-        consoleLogs.forEach(log => {
-            const message = formatConsoleLogMessage(log);
-            const lines = message.split('\n').length;
-            totalLines += lines;
+    // Get selected network requests
+    const selectedRequests = filteredRequests.filter(req => selectedRequestIds.has(req.id));
+    
+    // Calculate stats for selected network requests
+    let networkLines = 0;
+    let networkTokens = 0;
+    
+    if (selectedRequests.length > 0) {
+        // Simulate the same format as copyNetworkRequestsToClipboard
+        selectedRequests.forEach((req, index) => {
+            // Header lines
+            networkLines += 6; // Request X, URL, Method, Status, Timestamp, blank line
             
-            // Estimate tokens (rough approximation: ~4 characters per token)
-            const text = message + (log.stack || '');
-            totalTokens += Math.ceil(text.length / 4);
+            // Payload
+            const payloadText = formatData(req.payload, false);
+            networkLines += payloadText.split('\n').length + 2; // "Payload:\n" + content + "\n\n"
+            networkTokens += Math.ceil(payloadText.length / 4);
+            
+            // Response
+            const responseText = formatData(req.response, false);
+            networkLines += responseText.split('\n').length + 2; // "Response:\n" + content + "\n"
+            networkTokens += Math.ceil(responseText.length / 4);
+            
+            // URL, Method, Status, Timestamp
+            networkTokens += Math.ceil((req.url + req.method + (req.statusText || '') + formatTimestamp(req.timestamp)).length / 4);
+            
+            // Separator lines between requests
+            if (index > 0) {
+                networkLines += 3; // "\n" + separator + "\n\n"
+            }
         });
         
-        // Format display
-        const tokenSizeKB = (totalTokens / 1000).toFixed(1);
-        consoleStats.textContent = `${totalLines} lines, ${tokenSizeKB}K tokens`;
-    });
+        // Add header line
+        networkLines += 2; // "Network Requests:\n" + separator
+    }
+    
+    // Get console logs if checkbox is checked
+    const includeConsole = copyConsoleCheckbox && copyConsoleCheckbox.checked;
+    let consoleLines = 0;
+    let consoleTokens = 0;
+    
+    if (includeConsole) {
+        chrome.runtime.sendMessage({ type: 'GET_CONSOLE_LOGS' }, (response) => {
+            if (!chrome.runtime.lastError && response && response.logs) {
+                const consoleLogs = response.logs || [];
+                
+                consoleLogs.forEach(log => {
+                    const message = formatConsoleLogMessage(log);
+                    const lines = message.split('\n').length;
+                    consoleLines += lines;
+                    
+                    // Estimate tokens (rough approximation: ~4 characters per token)
+                    const text = message + (log.stack || '');
+                    consoleTokens += Math.ceil(text.length / 4);
+                });
+                
+                // Add console header
+                if (consoleLogs.length > 0) {
+                    consoleLines += 2; // "Console Logs:\n" + separator
+                }
+            }
+            
+            // Update display with combined stats
+            updateStatsDisplay(networkLines + consoleLines, networkTokens + consoleTokens);
+        });
+    } else {
+        // Update display with just network stats
+        updateStatsDisplay(networkLines, networkTokens);
+    }
+}
+
+// Update stats display
+function updateStatsDisplay(totalLines, totalTokens) {
+    if (!consoleStats) {
+        return;
+    }
+    
+    if (totalLines === 0 && totalTokens === 0) {
+        consoleStats.textContent = '';
+        return;
+    }
+    
+    // Format display
+    const tokenSizeKB = (totalTokens / 1000).toFixed(1);
+    consoleStats.textContent = `${totalLines} lines, ${tokenSizeKB}K tokens`;
 }
 
 // Copy selected requests to clipboard
@@ -1283,6 +1386,75 @@ function copyNetworkRequestsToClipboard(selectedRequests) {
     });
     
     copyTextToClipboard(text);
+}
+
+// Copy detail view request to clipboard (single request, excludes console logs)
+function copyDetailRequest(e) {
+    // Prevent event propagation
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    
+    if (!currentDetailRequest) {
+        console.warn('No current detail request to copy');
+        return;
+    }
+    
+    const req = currentDetailRequest;
+    const showHeaders = showHeadersDetailCheckbox ? showHeadersDetailCheckbox.checked : false;
+    
+    let text = '';
+    
+    text += 'Network Request:\n';
+    text += '='.repeat(80) + '\n\n';
+    
+    text += `URL: ${req.url}\n`;
+    text += `Method: ${req.method}\n`;
+    text += `Status: ${req.status || 'Pending'} ${req.statusText || ''}\n`;
+    text += `Timestamp: ${formatTimestamp(req.timestamp)}\n`;
+    text += '\n';
+    
+    // Request Headers (if shown)
+    if (showHeaders && req.requestHeaders) {
+        text += 'Request Headers:\n';
+        text += formatData(req.requestHeaders, false);
+        text += '\n\n';
+    }
+    
+    // Request Payload
+    text += 'Payload:\n';
+    text += formatData(req.payload, false);
+    text += '\n\n';
+    
+    // Response Headers (if shown)
+    if (showHeaders && req.responseHeaders) {
+        text += 'Response Headers:\n';
+        text += formatData(req.responseHeaders, false);
+        text += '\n\n';
+    }
+    
+    // Response
+    text += 'Response:\n';
+    text += formatData(req.response, false);
+    text += '\n';
+    
+    console.log('Copying detail request, text length:', text.length);
+    
+    // Copy to clipboard with visual feedback
+    navigator.clipboard.writeText(text).then(() => {
+        console.log('Successfully copied to clipboard');
+        // Show green feedback on copy button
+        if (copyDetailBtn) {
+            copyDetailBtn.classList.add('copied');
+            setTimeout(() => {
+                copyDetailBtn.classList.remove('copied');
+            }, 1000);
+        }
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy to clipboard. Please try again.');
+    });
 }
 
 // Copy console logs only to clipboard
