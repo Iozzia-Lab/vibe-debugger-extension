@@ -4,14 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Network Capture Inspector</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
     <div class="sidepanel-container">
         <!-- Header -->
         <div class="header">
+            <div class="active-project-name" id="activeProjectName" style="display: none;"></div>
             <div class="header-controls">
-                <button class="btn-projects" id="projectsBtn" title="Manage Projects">📁</button>
+                <div class="projects-button-wrapper" style="position: relative;">
+                    <button class="btn-projects" id="projectsBtn" title="Manage Projects">📁</button>
+                    <div class="projects-dropdown hidden" id="projectsDropdown"></div>
+                </div>
                 <button class="btn-console-viewer" id="openConsoleViewerBtn" title="Open Console Viewer">Console</button>
                 <button class="btn-copy-selected" id="copySelectedBtn" disabled>Copy Selected</button>
                 <button class="btn-clear" id="clearBtn">Clear</button>
@@ -28,11 +33,11 @@
                         <circle cx="8" cy="8" r="3" fill="currentColor"/>
                     </svg>
                 </button>
-                <button class="btn-reload" id="reloadBtn" title="Reload Tab">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                        <path d="M8 2.5C10.4853 2.5 12.5 4.51472 12.5 7C12.5 9.48528 10.4853 11.5 8 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>
-                        <path d="M10.5 5.5L12.5 3.5L10.5 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-                    </svg>
+                <button class="btn-reload" id="reloadBtn" title="Reload Tab" style="display: flex;">
+                    <i class="fa-solid fa-arrow-rotate-right"></i>
+                </button>
+                <button class="btn-load" id="loadBtn" title="Load Project URL" style="display: none;">
+                    <i class="fa-solid fa-arrow-up"></i>
                 </button>
                 <img class="tab-favicon" id="tabFavicon" src="" alt="" style="display: none;">
                 <div class="tab-info-text">
@@ -74,9 +79,24 @@
                             <input type="text" id="projectName" required placeholder="Enter project name">
                         </div>
                         <div class="form-group">
-                            <label for="projectFolder">Local Folder Path:</label>
+                            <label for="projectFolder">Backend Local Folder Path:</label>
                             <input type="text" id="projectFolder" required placeholder="e.g., C:\Projects\MyProject">
-                            <small>Enter the full path to your project folder</small>
+                            <small>Enter the full path to your backend project folder</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="projectFrontendDomain">Frontend Domain:</label>
+                            <input type="text" id="projectFrontendDomain" required placeholder="e.g., project1.localhost or localhost:8100">
+                            <small>Frontend domain/URL (e.g., project1.localhost or localhost:8100)</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="projectBackendDomain">Backend Domain:</label>
+                            <input type="text" id="projectBackendDomain" required placeholder="e.g., api.project1.localhost or localhost:3000">
+                            <small>Backend domain/URL for log clearing (e.g., api.project1.localhost or localhost:3000)</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="projectLogFile">Log File Path:</label>
+                            <input type="text" id="projectLogFile" placeholder="e.g., v\1\error_log (relative to backend folder)">
+                            <small>Log file path relative to backend folder. Leave empty for default: debug.log</small>
                         </div>
                         <div class="form-actions">
                             <button type="button" class="btn-cancel" id="cancelProjectForm">Cancel</button>

@@ -32,10 +32,24 @@ body {
     flex-shrink: 0;
 }
 
+.active-project-name {
+    font-size: 13px;
+    color: #d4d4d4;
+    padding: 0 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
 .header-controls {
     display: flex;
     align-items: center;
     gap: 15px;
+}
+
+.projects-button-wrapper {
+    position: relative;
 }
 
 .request-count-inline {
@@ -130,7 +144,8 @@ button:active {
     color: #858585;
 }
 
-.btn-reload {
+.btn-reload,
+.btn-load {
     background: transparent;
     border: none;
     padding: 4px;
@@ -140,10 +155,75 @@ button:active {
     justify-content: center;
     color: #d4d4d4;
     transition: color 0.2s;
+    font-size: 14px;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
 }
 
-.btn-reload:hover {
+.btn-reload:hover,
+.btn-load:hover {
     color: #ffffff;
+}
+
+.btn-reload i,
+.btn-load i {
+    font-size: 14px;
+    line-height: 1;
+}
+
+/* Projects Dropdown */
+.projects-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 5px;
+    background: #252526;
+    border: 1px solid #3e3e42;
+    border-radius: 4px;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 1000;
+    min-width: 250px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.projects-dropdown.hidden {
+    display: none !important;
+}
+
+.dropdown-item {
+    padding: 10px 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.dropdown-item:hover {
+    background: #3e3e42;
+}
+
+.dropdown-item-active {
+    background: #1e3a4a;
+}
+
+.dropdown-item-active:hover {
+    background: #2a4a5a;
+}
+
+.dropdown-separator {
+    height: 1px;
+    background: #3e3e42;
+    margin: 5px 0;
+}
+
+.dropdown-edit {
+    font-weight: 500;
+    color: #0e639c;
+}
+
+.dropdown-edit:hover {
+    background: #3e3e42;
+    color: #1177bb;
 }
 
 .btn-copy-selected {
@@ -833,6 +913,12 @@ button:active {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    margin-bottom: 10px;
+}
+
+.project-item.active-project {
+    border-color: #0e639c;
+    background: #1e3a4a;
 }
 
 .project-info {
@@ -857,6 +943,7 @@ button:active {
     gap: 8px;
 }
 
+.btn-select-project,
 .btn-edit-project,
 .btn-delete-project {
     background: #3e3e42;
@@ -866,6 +953,18 @@ button:active {
     border-radius: 4px;
     font-size: 12px;
     cursor: pointer;
+}
+
+.btn-select-project:hover {
+    background: #0e639c;
+    color: white;
+}
+
+.btn-select-project:disabled {
+    background: #0e639c;
+    color: white;
+    cursor: default;
+    opacity: 0.8;
 }
 
 .btn-edit-project:hover {

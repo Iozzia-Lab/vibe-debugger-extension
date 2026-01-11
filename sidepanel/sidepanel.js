@@ -41,7 +41,13 @@ const tabInfoSection = document.getElementById('tabInfoSection');
 const tabFavicon = document.getElementById('tabFavicon');
 const tabTitle = document.getElementById('tabTitle');
 const tabUrl = document.getElementById('tabUrl');
+const activeProjectName = document.getElementById('activeProjectName');
+const projectsDropdown = document.getElementById('projectsDropdown');
+const projectsButtonWrapper = document.querySelector('.projects-button-wrapper');
+const loadBtn = document.getElementById('loadBtn');
 let editingProjectId = null;
+let activeProjectId = null; // Currently active project
+let currentTabUrl = null; // Current tab URL for matching
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -52,19 +58,27 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjects();
     loadActiveTabInfo();
     updateCopySelectedButton();
+    updateActiveProjectDisplay();
+    updateReloadButton();
     
     // Refresh requests periodically
     setInterval(loadRequests, 1000);
     
     // Refresh tab info periodically
-    setInterval(loadActiveTabInfo, 2000);
+    setInterval(() => {
+        loadActiveTabInfo();
+        updateReloadButton();
+    }, 2000);
 });
 
 // Setup event listeners
 function setupEventListeners() {
     recordBtn.addEventListener('click', toggleRecording);
     if (reloadBtn) {
-        reloadBtn.addEventListener('click', reloadTab);
+        reloadBtn.addEventListener('click', () => handleReloadOrLoad(true));
+    }
+    if (loadBtn) {
+        loadBtn.addEventListener('click', () => handleReloadOrLoad(false));
     }
     clearBtn.addEventListener('click', clearAllRequests);
     backBtn.addEventListener('click', showListView);
@@ -102,13 +116,44 @@ function setupEventListeners() {
         closePanelBtn.addEventListener('click', closeSidePanel);
     }
     
-    // Projects button
+    // Projects button - toggle dropdown
     if (projectsBtn) {
-        projectsBtn.addEventListener('click', () => {
-            projectsModal.classList.remove('hidden');
-            loadProjects();
+        projectsBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleProjectsDropdown();
         });
     }
+    
+    // Close dropdown when clicking outside
+    // Use mousedown instead of click to catch events earlier
+    document.addEventListener('mousedown', (e) => {
+        if (!projectsDropdown) return;
+        
+        // Check if dropdown is visible
+        if (projectsDropdown.classList.contains('hidden')) {
+            return;
+        }
+        
+        // Get the wrapper element
+        const wrapper = projectsButtonWrapper || (projectsBtn && projectsBtn.parentElement);
+        
+        // Check if click is outside the wrapper
+        if (wrapper) {
+            if (!wrapper.contains(e.target)) {
+                // Click is outside wrapper - close dropdown
+                projectsDropdown.classList.add('hidden');
+            }
+        } else {
+            // Fallback: check button and dropdown separately
+            const isButtonClick = projectsBtn && (e.target === projectsBtn || projectsBtn.contains(e.target));
+            const isDropdownClick = projectsDropdown.contains(e.target);
+            
+            if (!isButtonClick && !isDropdownClick) {
+                // Click is outside both - close dropdown
+                projectsDropdown.classList.add('hidden');
+            }
+        }
+    });
     
     // Close modals
     if (closeProjectsModal) {
@@ -132,6 +177,9 @@ function setupEventListeners() {
             document.getElementById('projectFormTitle').textContent = 'Add Project';
             document.getElementById('projectName').value = '';
             document.getElementById('projectFolder').value = '';
+            document.getElementById('projectFrontendDomain').value = '';
+            document.getElementById('projectBackendDomain').value = '';
+            document.getElementById('projectLogFile').value = '';
             projectFormModal.classList.remove('hidden');
         });
     }
@@ -382,14 +430,62 @@ function toggleRecording() {
     });
 }
 
-// Reload the monitored tab
-function reloadTab() {
-    chrome.runtime.sendMessage({ type: 'RELOAD_PAGE' }, (response) => {
-        if (response && response.success) {
-            // Clear requests after reload
-            clearAllRequests();
-        }
-    });
+// Handle reload or load based on URL match
+function handleReloadOrLoad(shouldReload) {
+    if (shouldReload) {
+        // Reload current tab
+        chrome.runtime.sendMessage({ type: 'RELOAD_PAGE' }, (response) => {
+            if (response && response.success) {
+                // Clear requests after reload
+                clearAllRequests();
+            }
+        });
+    } else {
+        // Load project domain (just the domain, no path)
+        chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+            const projects = result.projects || [];
+            const activeProjectId = result.activeProjectId;
+            const project = projects.find(p => p.id === activeProjectId);
+            
+            if (project && project.frontendDomain) {
+                // Construct URL with http:// prefix if not present - just the domain, no path
+                let projectUrl = project.frontendDomain;
+                if (!projectUrl.startsWith('http://') && !projectUrl.startsWith('https://')) {
+                    projectUrl = 'http://' + projectUrl;
+                }
+                
+                // Ensure it's just the domain (remove any existing path)
+                try {
+                    const urlObj = new URL(projectUrl);
+                    projectUrl = urlObj.origin; // Just protocol + host (domain + port if present)
+                } catch (e) {
+                    // If URL parsing fails, use as-is
+                }
+                
+                        // Navigate to project domain
+                        chrome.runtime.sendMessage({ type: 'GET_ACTIVE_TAB_INFO' }, (tabInfo) => {
+                            if (tabInfo && tabInfo.tabInfo && tabInfo.tabInfo.id) {
+                                // Optimistically show reload button immediately for better UX
+                                // The periodic refresh will verify the match
+                                if (reloadBtn && loadBtn) {
+                                    reloadBtn.style.display = 'flex';
+                                    loadBtn.style.display = 'none';
+                                }
+                                
+                                // Initiate navigation
+                                chrome.tabs.update(tabInfo.tabInfo.id, { url: projectUrl }, () => {
+                                    // After navigation starts, wait a moment then refresh tab info
+                                    // This ensures we get the updated URL after navigation
+                                    setTimeout(() => {
+                                        loadActiveTabInfo();
+                                        updateReloadButton();
+                                    }, 500);
+                                });
+                            }
+                        });
+            }
+        });
+    }
 }
 
 // Update recording button appearance
@@ -646,6 +742,357 @@ function clearAllRequests() {
             // Notify console viewer via background script
             chrome.runtime.sendMessage({ type: 'NOTIFY_CONSOLE_VIEWER_CLEAR' });
         }
+    });
+    
+    // Clear log file for active project
+    if (activeProjectId) {
+        clearProjectLogFile(activeProjectId);
+    }
+}
+
+// Clear log file for a project
+function clearProjectLogFile(projectId) {
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+        const projects = result.projects || [];
+        const activeProjectId = result.activeProjectId;
+        const project = projects.find(p => p.id === projectId);
+        
+        // Helper function to send console log
+        const sendConsoleLog = (level, message) => {
+            chrome.runtime.sendMessage({ type: 'GET_ACTIVE_TAB_INFO' }, (tabInfo) => {
+                if (tabInfo && tabInfo.tabInfo && tabInfo.tabInfo.id) {
+                    const logId = 'log-clear-' + Date.now();
+                    const timestamp = Date.now();
+                    
+                    chrome.runtime.sendMessage({
+                        type: 'CONSOLE_LOG',
+                        tabId: tabInfo.tabInfo.id,
+                        data: {
+                            id: logId,
+                            level: level,
+                            message: `[Log File Clear] ${message}`,
+                            args: [`[Log File Clear] ${message}`],
+                            timestamp: timestamp,
+                            stack: null
+                        }
+                    });
+                }
+            });
+        };
+        
+        // Only clear if project is active and URL matches
+        if (!project) {
+            sendConsoleLog('error', 'Project not found');
+            return;
+        }
+        
+        if (projectId !== activeProjectId) {
+            sendConsoleLog('error', `Project not active (active: ${activeProjectId}, requested: ${projectId})`);
+            return;
+        }
+        
+        // Check URL match - compare domains with normalization (same as updateReloadButton)
+        try {
+            if (!currentTabUrl) {
+                sendConsoleLog('error', 'No current tab URL');
+                return;
+            }
+            
+            const tabUrlObj = new URL(currentTabUrl);
+            const tabDomain = tabUrlObj.host.toLowerCase().trim();
+            
+            let projectFrontendDomain = project.frontendDomain || project.domain;
+            
+            // Normalize project domain - remove protocol if present, extract just host
+            if (projectFrontendDomain) {
+                try {
+                    // If it looks like a URL, parse it to get just the host
+                    if (projectFrontendDomain.includes('://') || projectFrontendDomain.startsWith('http')) {
+                        const projectUrlObj = new URL(projectFrontendDomain.startsWith('http') ? projectFrontendDomain : 'http://' + projectFrontendDomain);
+                        projectFrontendDomain = projectUrlObj.host;
+                    }
+                } catch (e) {
+                    // If parsing fails, use as-is (might already be just a domain)
+                }
+            }
+            
+            const normalizedProjectDomain = (projectFrontendDomain || '').toLowerCase().trim();
+            
+            if (tabDomain !== normalizedProjectDomain) {
+                sendConsoleLog('error', `URL mismatch (tab: ${tabDomain}, project: ${normalizedProjectDomain})`);
+                return;
+            }
+        } catch (e) {
+            sendConsoleLog('error', `Invalid URL: ${e.message}`);
+            return;
+        }
+        
+        // Construct full log path
+        const fullLogPath = project.folder + '\\' + project.logFilePath;
+        
+        // Construct request URL using backend domain
+        const projectBackendDomain = project.backendDomain || project.domain;
+        if (!projectBackendDomain) {
+            sendConsoleLog('error', 'No backend domain configured for project');
+            return;
+        }
+        
+        let projectUrl = projectBackendDomain;
+        if (!projectUrl.startsWith('http://') && !projectUrl.startsWith('https://')) {
+            projectUrl = 'http://' + projectUrl;
+        }
+        // Remove trailing slash from projectUrl if present, then add script path
+        projectUrl = projectUrl.replace(/\/+$/, '');
+        // Use PHP script (comes with XAMPP, no Python needed)
+        const scriptUrl = `${projectUrl}/debug_clear_log.php?log=${encodeURIComponent(fullLogPath)}`;
+        
+        sendConsoleLog('log', `Attempting to clear log: ${scriptUrl}`);
+        
+        // Send HTTP GET request
+        fetch(scriptUrl, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            // Check content type
+            const contentType = response.headers.get('content-type');
+            if (contentType && !contentType.includes('application/json')) {
+                // Try to read as text first to see what we got
+                return response.text().then(text => {
+                    // Check if server returned PHP code instead of executing it
+                    if (text.trim().startsWith('<?php') || text.trim().startsWith('<!DOCTYPE')) {
+                        throw new Error('Server returned PHP script/HTML instead of executing it. Make sure PHP is enabled in your web server.');
+                    }
+                    // Try to parse as JSON anyway (might be JSON with wrong content-type)
+                    try {
+                        return JSON.parse(text);
+                    } catch (e) {
+                        throw new Error(`Server returned non-JSON response (Content-Type: ${contentType}). Response preview: ${text.substring(0, 200)}`);
+                    }
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data && typeof data === 'object' && 'success' in data) {
+                if (data.success) {
+                    sendConsoleLog('log', `Success: ${data.message}`);
+                } else {
+                    sendConsoleLog('error', `Failed: ${data.message}`);
+                }
+            } else {
+                sendConsoleLog('error', `Unexpected response format: ${JSON.stringify(data)}`);
+            }
+        })
+        .catch(error => {
+            sendConsoleLog('error', `Error: ${error.message || String(error)}`);
+        });
+    });
+}
+
+// Check if current tab URL matches active project domain (synchronous check)
+function checkUrlMatch() {
+    if (!activeProjectId || !currentTabUrl) {
+        return false;
+    }
+    
+    // This is called from clearProjectLogFile which already has project data
+    // So we'll do a quick synchronous check here
+    try {
+        const tabUrlObj = new URL(currentTabUrl);
+        const tabDomain = tabUrlObj.host; // Includes port if present
+        
+        // We need project domain - this will be passed from caller context
+        // For now, return false and let the async version handle it
+        return false;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Update reload/load button based on URL match
+function updateReloadButton() {
+    if (!reloadBtn || !loadBtn) {
+        return;
+    }
+    
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+        const projects = result.projects || [];
+        const activeProjectId = result.activeProjectId;
+        
+        if (!activeProjectId || !currentTabUrl) {
+            // No active project or no current URL - show reload by default
+            reloadBtn.style.display = 'flex';
+            loadBtn.style.display = 'none';
+            return;
+        }
+        
+        const project = projects.find(p => p.id === activeProjectId);
+        if (!project || !project.frontendDomain) {
+            // No project or no frontend domain - show reload by default
+            reloadBtn.style.display = 'flex';
+            loadBtn.style.display = 'none';
+            return;
+        }
+        
+        try {
+            const tabUrlObj = new URL(currentTabUrl);
+            const tabDomain = tabUrlObj.host; // Includes port if present (e.g., "localhost:8100")
+            let projectFrontendDomain = project.frontendDomain || project.domain;
+            
+            // Normalize project domain - remove protocol if present, extract just host
+            if (projectFrontendDomain) {
+                try {
+                    // If it looks like a URL, parse it to get just the host
+                    if (projectFrontendDomain.includes('://') || projectFrontendDomain.startsWith('http')) {
+                        const projectUrlObj = new URL(projectFrontendDomain.startsWith('http') ? projectFrontendDomain : 'http://' + projectFrontendDomain);
+                        projectFrontendDomain = projectUrlObj.host;
+                    }
+                } catch (e) {
+                    // If parsing fails, use as-is (might already be just a domain)
+                }
+            }
+            
+            // Normalize domains for comparison (remove any trailing slashes, handle case)
+            const normalizedTabDomain = tabDomain.toLowerCase().trim();
+            const normalizedProjectDomain = (projectFrontendDomain || '').toLowerCase().trim();
+            
+            // Compare domains (match if tab domain equals project frontend domain)
+            const matches = normalizedTabDomain === normalizedProjectDomain;
+            
+            if (matches) {
+                // Domain matches - show reload button, hide load button
+                reloadBtn.style.display = 'flex';
+                loadBtn.style.display = 'none';
+            } else {
+                // Domain doesn't match - hide reload button, show load button
+                reloadBtn.style.display = 'none';
+                loadBtn.style.display = 'flex';
+            }
+        } catch (e) {
+            // Invalid URL, show reload button
+            reloadBtn.style.display = 'flex';
+            loadBtn.style.display = 'none';
+        }
+    });
+}
+
+// Update active project display in header
+function updateActiveProjectDisplay() {
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+        const projects = result.projects || [];
+        const activeProjectId = result.activeProjectId;
+        
+        if (!activeProjectName) return;
+        
+        if (activeProjectId) {
+            const project = projects.find(p => p.id === activeProjectId);
+            if (project) {
+                activeProjectName.textContent = project.name;
+                activeProjectName.style.display = '';
+            } else {
+                activeProjectName.style.display = 'none';
+            }
+        } else {
+            activeProjectName.style.display = 'none';
+        }
+    });
+}
+
+// Toggle projects dropdown
+function toggleProjectsDropdown() {
+    if (!projectsDropdown) return;
+    
+    const isHidden = projectsDropdown.classList.contains('hidden');
+    
+    if (isHidden) {
+        // Show dropdown
+        chrome.storage.local.get(['projects'], (result) => {
+            const projects = result.projects || [];
+            renderProjectsDropdown(projects);
+            projectsDropdown.classList.remove('hidden');
+        });
+    } else {
+        // Hide dropdown
+        projectsDropdown.classList.add('hidden');
+    }
+}
+
+// Render projects dropdown
+function renderProjectsDropdown(projects) {
+    if (!projectsDropdown) return;
+    
+    if (projects.length === 0) {
+        projectsDropdown.innerHTML = `
+            <div class="dropdown-item" style="padding: 10px 15px; color: #858585;">
+                No projects yet
+            </div>
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item dropdown-edit" style="padding: 10px 15px; cursor: pointer;">
+                Edit Projects
+            </div>
+        `;
+    } else {
+        const projectsHtml = projects.map(project => {
+            const isActive = project.id === activeProjectId;
+            return `
+                <div class="dropdown-item ${isActive ? 'dropdown-item-active' : ''}" data-project-id="${project.id}" style="padding: 10px 15px; cursor: pointer;">
+                    <div style="font-weight: ${isActive ? '600' : '400'}; color: ${isActive ? '#0e639c' : '#d4d4d4'};">
+                        ${escapeHtml(project.name)}
+                    </div>
+                    <div style="font-size: 11px; color: #858585; margin-top: 2px;">
+                        ${escapeHtml(project.frontendDomain || project.domain || '')}
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        projectsDropdown.innerHTML = projectsHtml + `
+            <div class="dropdown-separator"></div>
+            <div class="dropdown-item dropdown-edit" style="padding: 10px 15px; cursor: pointer;">
+                Edit Projects
+            </div>
+        `;
+        
+        // Add event listeners
+        projectsDropdown.querySelectorAll('.dropdown-item[data-project-id]').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent document click handler from firing
+                const projectId = e.currentTarget.getAttribute('data-project-id');
+                selectProject(projectId);
+                projectsDropdown.classList.add('hidden');
+            });
+        });
+        
+        const editItem = projectsDropdown.querySelector('.dropdown-edit');
+        if (editItem) {
+            editItem.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent document click handler from firing
+                projectsDropdown.classList.add('hidden');
+                projectsModal.classList.remove('hidden');
+                loadProjects();
+            });
+        }
+    }
+}
+
+// Select/activate a project
+function selectProject(projectId) {
+    activeProjectId = projectId;
+    chrome.storage.local.set({ activeProjectId: projectId }, () => {
+        loadProjects(); // Refresh to show active state
+        updateActiveProjectDisplay();
+        updateReloadButton();
+        // Also update dropdown if visible
+        chrome.storage.local.get(['projects'], (result) => {
+            const projects = result.projects || [];
+            if (!projectsDropdown.classList.contains('hidden')) {
+                renderProjectsDropdown(projects);
+            }
+        });
     });
 }
 
@@ -958,9 +1405,18 @@ function escapeHtml(text) {
 
 // Load projects from storage
 function loadProjects() {
-    chrome.storage.local.get(['projects'], (result) => {
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
         const projects = result.projects || [];
+        activeProjectId = result.activeProjectId || null;
         renderProjectsList(projects);
+    });
+}
+
+// Select/activate a project
+function selectProject(projectId) {
+    activeProjectId = projectId;
+    chrome.storage.local.set({ activeProjectId: projectId }, () => {
+        loadProjects(); // Refresh to show active state
     });
 }
 
@@ -973,20 +1429,32 @@ function renderProjectsList(projects) {
         return;
     }
     
-    projectsList.innerHTML = projects.map(project => `
-        <div class="project-item" data-project-id="${project.id}">
+    projectsList.innerHTML = projects.map(project => {
+        const isActive = project.id === activeProjectId;
+        return `
+        <div class="project-item ${isActive ? 'active-project' : ''}" data-project-id="${project.id}">
             <div class="project-info">
-                <div class="project-name">${escapeHtml(project.name)}</div>
+                <div class="project-name">${escapeHtml(project.name)} ${isActive ? '<span style="color: #0e639c;">(Active)</span>' : ''}</div>
                 <div class="project-folder">${escapeHtml(project.folder)}</div>
+                ${project.logFilePath ? `<div class="project-log-file" style="font-size: 11px; color: #858585;">Log: ${escapeHtml(project.logFilePath)}</div>` : ''}
             </div>
             <div class="project-actions">
+                <button class="btn-select-project" data-project-id="${project.id}" ${isActive ? 'disabled' : ''}>${isActive ? 'Active' : 'Select'}</button>
                 <button class="btn-edit-project" data-project-id="${project.id}">Edit</button>
                 <button class="btn-delete-project" data-project-id="${project.id}">Delete</button>
             </div>
         </div>
-    `).join('');
+    `;
+    }).join('');
     
-    // Add event listeners for edit/delete buttons
+    // Add event listeners for select/edit/delete buttons
+    projectsList.querySelectorAll('.btn-select-project').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const projectId = e.target.getAttribute('data-project-id');
+            selectProject(projectId);
+        });
+    });
+    
     projectsList.querySelectorAll('.btn-edit-project').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const projectId = e.target.getAttribute('data-project-id');
@@ -1008,14 +1476,18 @@ function saveProject(e) {
     
     const name = document.getElementById('projectName').value.trim();
     const folder = document.getElementById('projectFolder').value.trim();
+    const frontendDomain = document.getElementById('projectFrontendDomain').value.trim();
+    const backendDomain = document.getElementById('projectBackendDomain').value.trim();
     
-    if (!name || !folder) {
-        alert('Please fill in all fields');
+    if (!name || !folder || !frontendDomain || !backendDomain) {
+        alert('Please fill in all required fields');
         return;
     }
     
     chrome.storage.local.get(['projects'], (result) => {
         const projects = result.projects || [];
+        
+        const logFile = document.getElementById('projectLogFile').value.trim() || 'debug.log';
         
         if (editingProjectId) {
             // Update existing project
@@ -1024,7 +1496,10 @@ function saveProject(e) {
                 projects[index] = {
                     ...projects[index],
                     name: name,
-                    folder: folder
+                    folder: folder,
+                    frontendDomain: frontendDomain,
+                    backendDomain: backendDomain,
+                    logFilePath: logFile
                 };
             }
         } else {
@@ -1033,6 +1508,9 @@ function saveProject(e) {
                 id: 'project_' + Date.now(),
                 name: name,
                 folder: folder,
+                frontendDomain: frontendDomain,
+                backendDomain: backendDomain,
+                logFilePath: logFile,
                 createdAt: Date.now()
             };
             projects.push(newProject);
@@ -1041,6 +1519,8 @@ function saveProject(e) {
         chrome.storage.local.set({ projects: projects }, () => {
             loadProjects();
             closeProjectForm();
+            updateActiveProjectDisplay();
+            updateReloadButton();
         });
     });
 }
@@ -1056,6 +1536,9 @@ function editProject(projectId) {
             document.getElementById('projectFormTitle').textContent = 'Edit Project';
             document.getElementById('projectName').value = project.name;
             document.getElementById('projectFolder').value = project.folder;
+            document.getElementById('projectFrontendDomain').value = project.frontendDomain || project.domain || '';
+            document.getElementById('projectBackendDomain').value = project.backendDomain || '';
+            document.getElementById('projectLogFile').value = project.logFilePath || 'debug.log';
             projectFormModal.classList.remove('hidden');
             projectsModal.classList.add('hidden');
         }
@@ -1068,12 +1551,24 @@ function deleteProject(projectId) {
         return;
     }
     
-    chrome.storage.local.get(['projects'], (result) => {
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
         const projects = result.projects || [];
         const filtered = projects.filter(p => p.id !== projectId);
         
-        chrome.storage.local.set({ projects: filtered }, () => {
+        // If deleted project was active, clear active project
+        let newActiveProjectId = result.activeProjectId;
+        if (projectId === result.activeProjectId) {
+            newActiveProjectId = null;
+        }
+        
+        chrome.storage.local.set({ 
+            projects: filtered,
+            activeProjectId: newActiveProjectId
+        }, () => {
+            activeProjectId = newActiveProjectId;
             loadProjects();
+            updateActiveProjectDisplay();
+            updateReloadButton();
         });
     });
 }
@@ -1100,8 +1595,10 @@ function loadActiveTabInfo() {
             }
             
             if (response && response.tabInfo) {
+                currentTabUrl = response.tabInfo.url || null;
                 updateTabInfoDisplay(response.tabInfo);
             } else {
+                currentTabUrl = null;
                 updateTabInfoDisplay(null);
             }
         });

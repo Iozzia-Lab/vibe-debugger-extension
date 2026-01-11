@@ -91,11 +91,75 @@
     return result;
   }
   
+  // Check if URL should be excluded from interception (CAPTCHA, security-sensitive)
+  function shouldExcludeRequest(url) {
+    if (!url) return false;
+    
+    const urlString = typeof url === 'string' ? url : url.toString();
+    const urlLower = urlString.toLowerCase();
+    
+    // CAPTCHA-related domains and paths
+    const captchaPatterns = [
+      'recaptcha',
+      'hcaptcha',
+      'funcaptcha',
+      'cloudflare.com/challenges',
+      'googleapis.com/recaptcha',
+      'gstatic.com/recaptcha',
+      'twilio.com', // Twilio uses CAPTCHA for login
+      'cloudflare.com/api/v4', // Cloudflare API endpoints
+      'challenges.cloudflare.com'
+    ];
+    
+    // Check if URL matches any CAPTCHA pattern
+    for (let i = 0; i < captchaPatterns.length; i++) {
+      if (urlLower.indexOf(captchaPatterns[i]) !== -1) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  // Check if current page is a CAPTCHA-related page
+  function isCaptchaPage() {
+    try {
+      const hostname = window.location.hostname.toLowerCase();
+      const pathname = window.location.pathname.toLowerCase();
+      const fullUrl = (hostname + pathname).toLowerCase();
+      
+      const captchaPatterns = [
+        'recaptcha',
+        'hcaptcha',
+        'funcaptcha',
+        'cloudflare.com/challenges',
+        'challenges.cloudflare.com',
+        'twilio.com' // Twilio login pages
+      ];
+      
+      for (let i = 0; i < captchaPatterns.length; i++) {
+        if (fullUrl.indexOf(captchaPatterns[i]) !== -1) {
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+  
   // Intercept fetch()
   const originalFetch = window.fetch;
   window.fetch = function() {
     const args = Array.prototype.slice.call(arguments);
     const url = args[0];
+    
+    // Skip interception for CAPTCHA and security-sensitive requests
+    if (shouldExcludeRequest(url)) {
+      return originalFetch.apply(this, args);
+    }
+    
     const options = args[1] || {};
     const requestId = generateRequestId();
     const method = (options.method || 'GET').toUpperCase();
@@ -207,7 +271,8 @@
       method: 'GET',
       payload: null,
       requestHeaders: {},
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      excluded: false // Flag to track if this request should be excluded
     };
     
     const originalOpen = xhr.open;
@@ -218,18 +283,34 @@
     xhr.open = function(method, url) {
       requestData.method = (method || 'GET').toUpperCase();
       requestData.url = url;
+      
+      // Check if this URL should be excluded
+      if (shouldExcludeRequest(url)) {
+        requestData.excluded = true;
+        // Don't override methods for excluded requests, just use originals
+        return originalOpen.apply(this, arguments);
+      }
+      
       const rest = Array.prototype.slice.call(arguments, 2);
       return originalOpen.apply(this, [method, url].concat(rest));
     };
     
     // Override setRequestHeader() to capture headers
     xhr.setRequestHeader = function(header, value) {
-      requestData.requestHeaders[header] = value;
+      // Skip capturing headers for excluded requests
+      if (!requestData.excluded) {
+        requestData.requestHeaders[header] = value;
+      }
       return originalSetRequestHeader.apply(this, arguments);
     };
     
     // Override send() to capture body and response
     xhr.send = function(body) {
+      // Skip interception for excluded requests
+      if (requestData.excluded) {
+        return originalSend.apply(this, arguments);
+      }
+      
       // Capture request body
       if (body) {
         if (typeof body === 'string') {
@@ -427,6 +508,11 @@
   // Click event handler
   function handleClick(event) {
     try {
+      // Skip click logging on CAPTCHA pages to avoid interference
+      if (isCaptchaPage()) {
+        return;
+      }
+      
       const element = event.target;
       
       // Skip if clicking on our own injected elements (if any)

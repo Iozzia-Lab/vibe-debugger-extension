@@ -120,12 +120,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     const requestData = message.data;
     
-    // Add to array
-    capturedRequests.unshift(requestData); // Add to beginning (newest first)
+    // Add to array (add to end, newest at bottom)
+    capturedRequests.push(requestData);
     
-    // Limit array size
+    // Limit array size (keep most recent items)
     if (capturedRequests.length > MAX_REQUESTS) {
-      capturedRequests = capturedRequests.slice(0, MAX_REQUESTS);
+      capturedRequests = capturedRequests.slice(-MAX_REQUESTS);
     }
     
     // Fire-and-forget message - no response needed
@@ -148,6 +148,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'CLEAR_REQUESTS') {
     // Clear all requests
     capturedRequests = [];
+    
+    // Also clear project log file if active project exists
+    chrome.storage.local.get(['activeProjectId', 'projectLogs'], (result) => {
+      const activeProjectId = result.activeProjectId;
+      if (activeProjectId) {
+        const projectLogs = result.projectLogs || {};
+        projectLogs[activeProjectId] = [];
+        chrome.storage.local.set({ projectLogs: projectLogs });
+      }
+    });
+    
     sendResponse({ success: true });
     return false; // Synchronous response sent
   }
@@ -199,22 +210,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
     
-    // Only capture from monitored tab
-    if (!sender.tab || sender.tab.id !== monitoredTabId) {
+    const logData = message.data;
+    
+    // Handle messages from side panel (no sender.tab) or from content script (has sender.tab)
+    let tabId = null;
+    if (sender.tab) {
+      // Message from content script - only capture from monitored tab
+      if (sender.tab.id !== monitoredTabId) {
+        return false;
+      }
+      tabId = sender.tab.id;
+    } else if (message.tabId) {
+      // Message from side panel with explicit tabId - use it if it matches monitored tab
+      if (message.tabId !== monitoredTabId) {
+        return false;
+      }
+      tabId = message.tabId;
+    } else {
+      // No tab info - skip
       return false;
     }
     
-    const logData = message.data;
     // Add tab ID to log data for filtering
-    logData.tabId = sender.tab.id;
+    logData.tabId = tabId;
     
-    // Add to array
-    capturedConsoleLogs.unshift(logData); // Add to beginning (newest first)
+    // Add to array (add to end, newest at bottom)
+    capturedConsoleLogs.push(logData);
     
-    // Limit array size
+    // Limit array size (keep most recent items)
     if (capturedConsoleLogs.length > MAX_CONSOLE_LOGS) {
-      capturedConsoleLogs = capturedConsoleLogs.slice(0, MAX_CONSOLE_LOGS);
+      capturedConsoleLogs = capturedConsoleLogs.slice(-MAX_CONSOLE_LOGS);
     }
+    
+    // Also save to project log file if active project exists
+    chrome.storage.local.get(['activeProjectId', 'projectLogs'], (result) => {
+      const activeProjectId = result.activeProjectId;
+      if (activeProjectId) {
+        const projectLogs = result.projectLogs || {};
+        if (!projectLogs[activeProjectId]) {
+          projectLogs[activeProjectId] = [];
+        }
+        projectLogs[activeProjectId].push(logData);
+        
+        // Limit project log size (keep most recent items)
+        if (projectLogs[activeProjectId].length > MAX_CONSOLE_LOGS) {
+          projectLogs[activeProjectId] = projectLogs[activeProjectId].slice(-MAX_CONSOLE_LOGS);
+        }
+        
+        chrome.storage.local.set({ projectLogs: projectLogs });
+      }
+    });
     
     // Fire-and-forget message - no response needed
     return false;
@@ -267,6 +312,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'CLEAR_CONSOLE_LOGS') {
     // Clear all console logs
     capturedConsoleLogs = [];
+    
+    // Also clear project log file if active project exists
+    chrome.storage.local.get(['activeProjectId', 'projectLogs'], (result) => {
+      const activeProjectId = result.activeProjectId;
+      if (activeProjectId) {
+        const projectLogs = result.projectLogs || {};
+        projectLogs[activeProjectId] = [];
+        chrome.storage.local.set({ projectLogs: projectLogs });
+      }
+    });
+    
     sendResponse({ success: true });
     return false;
   }
