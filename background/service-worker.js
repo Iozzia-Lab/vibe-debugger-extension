@@ -183,6 +183,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false; // Synchronous response sent
   }
   
+  // Screenshot selection messages - forward to side panel
+  // These messages come from content scripts and need to be forwarded
+  // The side panel will handle them via its own chrome.runtime.onMessage listener
+  if (message.type === 'SCREENSHOT_SELECTION_COMPLETE' || message.type === 'SCREENSHOT_SELECTION_CANCELLED') {
+    // Don't send response - let side panel handle it
+    // Return false to indicate we're not handling it here
+    // The side panel listener will receive this message
+    return false;
+  }
+  
   if (message.type === 'OPEN_POPUP') {
     // Open the popup
     chrome.action.openPopup();

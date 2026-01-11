@@ -15,6 +15,11 @@
       return;
     }
     
+    // Debug: log all messages to see what we're receiving
+    if (event.data && (event.data.type === 'SCREENSHOT_SELECTION_COMPLETE' || event.data.type === 'SCREENSHOT_SELECTION_CANCELLED')) {
+      console.log('[Network Capture] Content script received window.postMessage:', event.data.type, event.data);
+    }
+    
     // Forward message to background service worker
     function forwardToBackground(messageType, data) {
       // Wrap everything in try-catch to handle "Extension context invalidated" errors
@@ -66,5 +71,54 @@
     if (event.data && event.data.type === 'CONSOLE_CAPTURE_LOG') {
       forwardToBackground('CONSOLE_LOG', event.data.data);
     }
+    
+    // Handle screenshot selection messages (relay to background)
+    if (event.data && event.data.type === 'SCREENSHOT_SELECTION_COMPLETE') {
+      console.log('[Network Capture] Relaying selection complete:', event.data.selection);
+      chrome.runtime.sendMessage({
+        type: 'SCREENSHOT_SELECTION_COMPLETE',
+        selection: event.data.selection
+      }).then(function(response) {
+        console.log('[Network Capture] Selection message sent successfully');
+      }).catch(function(err) {
+        console.error('[Network Capture] Could not send selection:', err);
+      });
+    }
+    
+    if (event.data && event.data.type === 'SCREENSHOT_SELECTION_CANCELLED') {
+      console.log('[Network Capture] Relaying selection cancelled');
+      chrome.runtime.sendMessage({
+        type: 'SCREENSHOT_SELECTION_CANCELLED'
+      }).then(function(response) {
+        console.log('[Network Capture] Cancellation message sent successfully');
+      }).catch(function(err) {
+        console.error('[Network Capture] Could not send cancellation:', err);
+      });
+    }
+    
+    // Handle crop copy success/error messages (relay to side panel)
+    if (event.data && (event.data.type === 'CROP_COPY_SUCCESS' || event.data.type === 'CROP_COPY_ERROR')) {
+      console.log('[Network Capture] Relaying crop copy message:', event.data.type);
+      chrome.runtime.sendMessage({
+        type: event.data.type,
+        error: event.data.error
+      }).catch(function(err) {
+        console.error('[Network Capture] Error relaying crop copy message:', err);
+      });
+    }
+  });
+  
+  // Listen for messages from background/side panel
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'START_SCREENSHOT_SELECTION') {
+      // Forward to page context via postMessage
+      window.postMessage({ type: 'START_SCREENSHOT_SELECTION' }, '*');
+      sendResponse({ success: true });
+    }
+    if (message.type === 'STOP_SCREENSHOT_SELECTION') {
+      window.postMessage({ type: 'STOP_SCREENSHOT_SELECTION' }, '*');
+      sendResponse({ success: true });
+    }
+    return true;
   });
 })();

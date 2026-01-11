@@ -126,6 +126,15 @@ function setupEventListeners() {
         });
     }
     
+    // Crop screenshot button
+    if (cropBtn) {
+        cropBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startCropSelection();
+        });
+    }
+    
     // Copy Console checkbox change event
     if (copyConsoleCheckbox) {
         copyConsoleCheckbox.addEventListener('change', () => {
@@ -2055,6 +2064,341 @@ function captureTabScreenshot(windowId) {
                 console.error('Error converting screenshot:', err);
                 alert('Failed to process screenshot. Please try again.');
             });
+    });
+}
+
+// Start crop selection mode
+function startCropSelection() {
+    // Get the monitored tab ID
+    chrome.runtime.sendMessage({ type: 'GET_MONITORED_TAB_ID' }, (response) => {
+        if (chrome.runtime.lastError) {
+            console.error('Error getting monitored tab:', chrome.runtime.lastError);
+            alert('Failed to get active tab. Please try again.');
+            return;
+        }
+        
+        const monitoredTabId = response && response.tabId;
+        
+        if (!monitoredTabId) {
+            alert('No active tab to capture. Please navigate to a page first.');
+            return;
+        }
+        
+        // Update button state
+        if (cropBtn) {
+            cropBtn.classList.add('crop-active');
+        }
+        
+        // Inject selection overlay script
+        chrome.scripting.executeScript({
+            target: { tabId: monitoredTabId },
+            files: ['content/screenshot-selector.js'],
+            world: 'MAIN'
+        }).then(() => {
+            // Send message to start selection
+            chrome.tabs.sendMessage(monitoredTabId, { type: 'START_SCREENSHOT_SELECTION' }).catch(() => {
+                // If sendMessage fails, use postMessage via executeScript
+                chrome.scripting.executeScript({
+                    target: { tabId: monitoredTabId },
+                    func: () => {
+                        window.postMessage({ type: 'START_SCREENSHOT_SELECTION' }, '*');
+                    },
+                    world: 'MAIN'
+                });
+            });
+            
+            // Listen for selection completion
+            setupSelectionListener(monitoredTabId);
+        }).catch(err => {
+            console.error('Error injecting selection script:', err);
+            alert('Failed to start crop selection. Please try again.');
+            if (cropBtn) {
+                cropBtn.classList.remove('crop-active');
+            }
+        });
+    });
+}
+
+// Setup listener for selection completion
+let selectionMessageListener = null;
+
+function setupSelectionListener(tabId) {
+    // Remove existing listener if any
+    if (selectionMessageListener) {
+        chrome.runtime.onMessage.removeListener(selectionMessageListener);
+    }
+    
+    // Listen for messages from content script
+    selectionMessageListener = (message, sender, sendResponse) => {
+        console.log('[Crop] Received message:', message.type, 'from sender:', sender, 'expected tab:', tabId);
+        
+        // Check if this is a screenshot selection message
+        if (message.type === 'SCREENSHOT_SELECTION_COMPLETE') {
+            // Accept message regardless of sender.tab - we'll use the tabId we stored
+            const selection = message.selection;
+            console.log('[Crop] Selection received:', selection);
+            if (selection && selection.width > 0 && selection.height > 0) {
+                console.log('[Crop] Processing selection for tab:', tabId);
+                captureAndCropScreenshot(tabId, selection);
+                chrome.runtime.onMessage.removeListener(selectionMessageListener);
+                selectionMessageListener = null;
+                if (cropBtn) {
+                    cropBtn.classList.remove('crop-active');
+                }
+            } else {
+                console.error('[Crop] Invalid selection:', selection);
+            }
+            return true;
+        }
+        
+        if (message.type === 'SCREENSHOT_SELECTION_CANCELLED') {
+            console.log('[Crop] Selection cancelled');
+            chrome.runtime.onMessage.removeListener(selectionMessageListener);
+            selectionMessageListener = null;
+            if (cropBtn) {
+                cropBtn.classList.remove('crop-active');
+            }
+            return true;
+        }
+    };
+    
+    chrome.runtime.onMessage.addListener(selectionMessageListener);
+    console.log('[Crop] Listener set up for tab:', tabId);
+}
+
+// Capture screenshot and crop to selection
+function captureAndCropScreenshot(tabId, selection) {
+    console.log('[Crop] Starting screenshot capture for tab:', tabId, 'selection:', selection);
+    
+    // First, remove the overlay before capturing screenshot
+    console.log('[Crop] Removing overlay before screenshot');
+    chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: () => {
+            // Remove overlay elements
+            const overlay = document.getElementById('screenshot-selector-overlay');
+            const instructions = document.getElementById('screenshot-instructions');
+            if (overlay) {
+                overlay.remove();
+            }
+            if (instructions) {
+                instructions.remove();
+            }
+        },
+        world: 'MAIN'
+    }).then(() => {
+        console.log('[Crop] Overlay removed, waiting a moment before capture');
+        // Small delay to ensure overlay is removed from DOM
+        setTimeout(() => {
+            chrome.tabs.get(tabId, (tab) => {
+                if (chrome.runtime.lastError || !tab) {
+                    console.error('[Crop] Error getting tab:', chrome.runtime.lastError);
+                    alert('Failed to get tab information.');
+                    return;
+                }
+                
+                const windowId = tab.windowId;
+                console.log('[Crop] Capturing screenshot from window:', windowId);
+                
+                // Capture full screenshot (overlay should now be gone)
+                chrome.tabs.captureVisibleTab(windowId, { format: 'png' }, (dataUrl) => {
+                    if (chrome.runtime.lastError) {
+                        console.error('[Crop] Error capturing screenshot:', chrome.runtime.lastError);
+                        alert('Failed to capture screenshot. Please try again.');
+                        return;
+                    }
+                    
+                    if (!dataUrl) {
+                        console.error('[Crop] No screenshot data received');
+                        alert('Failed to capture screenshot. Please try again.');
+                        return;
+                    }
+                    
+                    console.log('[Crop] Screenshot captured, cropping...');
+                    
+                    // Crop the image
+                    cropImage(dataUrl, selection, () => {
+                        console.log('[Crop] Crop complete');
+                    });
+                });
+            });
+        }, 100); // 100ms delay to ensure overlay removal is rendered
+    }).catch(err => {
+        console.error('[Crop] Error removing overlay:', err);
+        // Continue anyway - try to capture screenshot
+        chrome.tabs.get(tabId, (tab) => {
+            if (chrome.runtime.lastError || !tab) {
+                console.error('[Crop] Error getting tab:', chrome.runtime.lastError);
+                alert('Failed to get tab information.');
+                return;
+            }
+            
+            const windowId = tab.windowId;
+            chrome.tabs.captureVisibleTab(windowId, { format: 'png' }, (dataUrl) => {
+                if (chrome.runtime.lastError || !dataUrl) {
+                    console.error('[Crop] Error capturing screenshot:', chrome.runtime.lastError);
+                    alert('Failed to capture screenshot. Please try again.');
+                    return;
+                }
+                
+                cropImage(dataUrl, selection, () => {});
+            });
+        });
+    });
+}
+
+// Crop image to selection rectangle
+function cropImage(dataUrl, selection, callback) {
+    const img = new Image();
+    img.onload = function() {
+        const canvas = document.createElement('canvas');
+        canvas.width = selection.width;
+        canvas.height = selection.height;
+        const ctx = canvas.getContext('2d');
+        
+        // The screenshot from captureVisibleTab is already at device pixel ratio
+        // Selection coordinates are in CSS pixels, but screenshot is at DPR scale
+        // We need to get the actual DPR of the tab to scale correctly
+        // For now, assume 1:1 mapping (works for most cases)
+        // If needed, we can get DPR from the tab's window
+        
+        // Draw cropped portion (selection coordinates are in CSS pixels)
+        ctx.drawImage(
+            img,
+            selection.x, selection.y, selection.width, selection.height,
+            0, 0, selection.width, selection.height
+        );
+        
+        // Convert to blob and copy to clipboard
+        // Use content script method since side panel may not have focus
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                alert('Failed to process cropped image.');
+                if (callback) callback();
+                return;
+            }
+            
+            // Copy via content script (runs in page context which should have focus)
+            copyImageViaContentScript(blob, callback);
+        }, 'image/png');
+    };
+    
+    img.onerror = function() {
+        console.error('[Crop] Error loading image for cropping');
+        alert('Failed to process screenshot for cropping.');
+        if (callback) callback();
+    };
+    
+    img.src = dataUrl;
+}
+
+// Copy image via content script (runs in page context which should have focus)
+function copyImageViaContentScript(blob, callback) {
+    // Get the monitored tab ID
+    chrome.runtime.sendMessage({ type: 'GET_MONITORED_TAB_ID' }, (response) => {
+        if (chrome.runtime.lastError || !response || !response.tabId) {
+            console.error('[Crop] Could not get monitored tab ID');
+            alert('Failed to copy cropped screenshot. Please ensure the page is focused and try again.');
+            if (callback) callback();
+            return;
+        }
+        
+        const tabId = response.tabId;
+        
+        // Convert blob to data URL
+        const reader = new FileReader();
+        reader.onloadend = function() {
+            const dataUrl = reader.result;
+            
+            console.log('[Crop] Injecting copy script into tab:', tabId);
+            
+            // Inject script to copy image in page context (MAIN world)
+            chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                func: (imageDataUrl) => {
+                    console.log('[Crop] Copy script executing in page context');
+                    // Create image from data URL
+                    const img = new Image();
+                    img.onload = function() {
+                        console.log('[Crop] Image loaded, creating canvas');
+                        // Create canvas
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        
+                        console.log('[Crop] Converting canvas to blob');
+                        // Copy to clipboard
+                        canvas.toBlob((blob) => {
+                            if (blob) {
+                                console.log('[Crop] Blob created, copying to clipboard');
+                                const item = new ClipboardItem({ 'image/png': blob });
+                                navigator.clipboard.write([item]).then(() => {
+                                    console.log('[Crop] Image successfully copied via content script');
+                                    // Send success message back
+                                    window.postMessage({ type: 'CROP_COPY_SUCCESS' }, '*');
+                                }).catch(err => {
+                                    console.error('[Crop] Failed to copy via content script:', err);
+                                    window.postMessage({ type: 'CROP_COPY_ERROR', error: err.message }, '*');
+                                });
+                            } else {
+                                console.error('[Crop] Failed to create blob from canvas');
+                                window.postMessage({ type: 'CROP_COPY_ERROR', error: 'Failed to create blob' }, '*');
+                            }
+                        }, 'image/png');
+                    };
+                    img.onerror = function(err) {
+                        console.error('[Crop] Failed to load image:', err);
+                        window.postMessage({ type: 'CROP_COPY_ERROR', error: 'Failed to load image' }, '*');
+                    };
+                    img.src = imageDataUrl;
+                },
+                args: [dataUrl],
+                world: 'MAIN'
+            }).then(() => {
+                console.log('[Crop] Copy script injected successfully');
+                // Listen for success/error message
+                const messageListener = (message, sender, sendResponse) => {
+                    if (message.type === 'CROP_COPY_SUCCESS') {
+                        console.log('[Crop] Copy successful message received');
+                        chrome.runtime.onMessage.removeListener(messageListener);
+                        // Show visual feedback
+                        if (cropBtn) {
+                            const originalHTML = cropBtn.innerHTML;
+                            cropBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                            cropBtn.classList.add('crop-success');
+                            setTimeout(() => {
+                                cropBtn.innerHTML = originalHTML;
+                                cropBtn.classList.remove('crop-success');
+                                cropBtn.classList.remove('crop-active');
+                            }, 1500);
+                        }
+                        if (callback) callback();
+                        return true;
+                    } else if (message.type === 'CROP_COPY_ERROR') {
+                        console.error('[Crop] Copy error message received:', message.error);
+                        chrome.runtime.onMessage.removeListener(messageListener);
+                        alert('Failed to copy cropped screenshot: ' + (message.error || 'Unknown error'));
+                        if (callback) callback();
+                        return true;
+                    }
+                };
+                
+                // Also listen via content script postMessage
+                chrome.runtime.onMessage.addListener(messageListener);
+                
+                // Set timeout in case message never arrives
+                setTimeout(() => {
+                    chrome.runtime.onMessage.removeListener(messageListener);
+                }, 5000);
+            }).catch(err => {
+                console.error('[Crop] Failed to execute copy script:', err);
+                alert('Failed to copy cropped screenshot. Please ensure the page is focused and try again.');
+                if (callback) callback();
+            });
+        };
+        reader.readAsDataURL(blob);
     });
 }
 

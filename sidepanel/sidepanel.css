@@ -784,7 +784,7 @@ button:active {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 15px;
+    gap: 5px;
     flex-wrap: wrap;
 }
 
@@ -810,11 +810,45 @@ button:active {
     font-weight: 500;
 }
 
+.btn-crop {
+    background: #0e639c;
+    color: white;
+    border: none;
+    padding: 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-crop:hover:not(:disabled) {
+    background: #1177bb;
+}
+
+.btn-crop.crop-active {
+    background: #4caf50;
+}
+
+.btn-crop.crop-active:hover {
+    background: #45a049;
+}
+
+.btn-crop.crop-success {
+    background: #4caf50;
+}
+
+.btn-crop.crop-success:hover {
+    background: #45a049;
+}
+
 .btn-screenshot {
     background: #0e639c;
     color: white;
     border: none;
-    padding: 6px 12px;
+    padding: 6px;
     border-radius: 3px;
     cursor: pointer;
     font-size: 12px;
@@ -840,7 +874,7 @@ button:active {
     background: #0e639c;
     color: white;
     border: none;
-    padding: 6px 12px;
+    padding: 6px;
     border-radius: 3px;
     cursor: pointer;
     font-size: 12px;
