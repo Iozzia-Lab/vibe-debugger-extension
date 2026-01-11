@@ -195,9 +195,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   if (message.type === 'RELOAD_PAGE') {
-    // Reload the monitored tab
+    // Reload the monitored tab with hard reload (bypass cache)
     if (monitoredTabId !== null) {
-      chrome.tabs.reload(monitoredTabId);
+      chrome.tabs.reload(monitoredTabId, { bypassCache: true });
     }
     sendResponse({ success: true });
     return false;
