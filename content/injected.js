@@ -180,6 +180,21 @@
     
     const timestamp = Date.now();
     
+    // Send pending request immediately
+    sendToContentScript({
+      id: requestId,
+      url: typeof url === 'string' ? url : url.toString(),
+      method: method,
+      payload: requestBody,
+      response: null,
+      status: null,
+      statusText: 'Pending',
+      requestHeaders: requestHeaders,
+      responseHeaders: {},
+      timestamp: timestamp,
+      pending: true
+    });
+    
     // Execute original fetch
     return originalFetch.apply(this, args)
       .then(function(response) {
@@ -210,7 +225,7 @@
             responseHeaders[key] = value;
           });
           
-          // Send captured data
+          // Send captured data (update existing pending request)
           sendToContentScript({
             id: requestId,
             url: typeof url === 'string' ? url : url.toString(),
@@ -221,10 +236,11 @@
             statusText: response.statusText,
             requestHeaders: requestHeaders,
             responseHeaders: responseHeaders,
-            timestamp: timestamp
+            timestamp: timestamp,
+            pending: false
           });
         }).catch(function() {
-          // If we can't read response, still send request info
+          // If we can't read response, still send request info (update pending)
           sendToContentScript({
             id: requestId,
             url: typeof url === 'string' ? url : url.toString(),
@@ -235,7 +251,8 @@
             statusText: response.statusText,
             requestHeaders: requestHeaders,
             responseHeaders: {},
-            timestamp: timestamp
+            timestamp: timestamp,
+            pending: false
           });
         });
         
@@ -324,6 +341,21 @@
         }
       }
       
+      // Send pending request immediately
+      sendToContentScript({
+        id: requestData.id,
+        url: requestData.url,
+        method: requestData.method,
+        payload: requestData.payload,
+        response: null,
+        status: null,
+        statusText: 'Pending',
+        requestHeaders: requestData.requestHeaders,
+        responseHeaders: {},
+        timestamp: requestData.timestamp,
+        pending: true
+      });
+      
       // Capture response when ready
       const originalOnReadyStateChange = xhr.onreadystatechange;
       const originalOnLoad = xhr.onload;
@@ -359,7 +391,7 @@
             });
           }
           
-          // Send captured data
+          // Send captured data (update pending request)
           sendToContentScript({
             id: requestData.id,
             url: requestData.url,
@@ -370,7 +402,8 @@
             statusText: xhr.statusText,
             requestHeaders: requestData.requestHeaders,
             responseHeaders: responseHeaders,
-            timestamp: requestData.timestamp
+            timestamp: requestData.timestamp,
+            pending: false
           });
         }
         
@@ -384,7 +417,40 @@
         xhr.onload = originalOnLoad;
       }
       if (originalOnError) {
-        xhr.onerror = originalOnError;
+        xhr.onerror = function() {
+          // Update pending request with error
+          sendToContentScript({
+            id: requestData.id,
+            url: requestData.url,
+            method: requestData.method,
+            payload: requestData.payload,
+            response: '[Request failed]',
+            status: 0,
+            statusText: 'Error',
+            requestHeaders: requestData.requestHeaders,
+            responseHeaders: {},
+            timestamp: requestData.timestamp,
+            pending: false
+          });
+          originalOnError.apply(this, arguments);
+        };
+      } else {
+        xhr.onerror = function() {
+          // Update pending request with error
+          sendToContentScript({
+            id: requestData.id,
+            url: requestData.url,
+            method: requestData.method,
+            payload: requestData.payload,
+            response: '[Request failed]',
+            status: 0,
+            statusText: 'Error',
+            requestHeaders: requestData.requestHeaders,
+            responseHeaders: {},
+            timestamp: requestData.timestamp,
+            pending: false
+          });
+        };
       }
       
       return originalSend.apply(this, arguments);

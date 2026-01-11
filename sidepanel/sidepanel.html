@@ -18,7 +18,6 @@
                     <div class="projects-dropdown hidden" id="projectsDropdown"></div>
                 </div>
                 <button class="btn-console-viewer" id="openConsoleViewerBtn" title="Open Console Viewer">Console</button>
-                <button class="btn-copy-selected" id="copySelectedBtn" disabled>Copy Selected</button>
                 <button class="btn-clear" id="clearBtn">Clear</button>
                 <button class="btn-close-panel" id="closePanelBtn" title="Close Panel">✕</button>
             </div>
@@ -110,9 +109,11 @@
         <!-- Copy Console Checkbox -->
         <div class="copy-console-section">
             <label class="copy-console-label">
-                <input type="checkbox" id="copyConsoleCheckbox">
+                <input type="checkbox" id="copyConsoleCheckbox" checked>
                 <span>Copy Console</span>
             </label>
+            <button class="btn-copy" id="copySelectedBtn">COPY</button>
+            <div class="console-stats" id="consoleStats"></div>
         </div>
         
         <!-- Filter Buttons -->

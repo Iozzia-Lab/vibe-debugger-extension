@@ -37,6 +37,7 @@ const closePanelBtn = document.getElementById('closePanelBtn');
 const copySelectedBtn = document.getElementById('copySelectedBtn');
 const openConsoleViewerBtn = document.getElementById('openConsoleViewerBtn');
 const copyConsoleCheckbox = document.getElementById('copyConsoleCheckbox');
+const consoleStats = document.getElementById('consoleStats');
 const tabInfoSection = document.getElementById('tabInfoSection');
 const tabFavicon = document.getElementById('tabFavicon');
 const tabTitle = document.getElementById('tabTitle');
@@ -48,6 +49,7 @@ const loadBtn = document.getElementById('loadBtn');
 let editingProjectId = null;
 let activeProjectId = null; // Currently active project
 let currentTabUrl = null; // Current tab URL for matching
+let isCopyButtonGreen = false; // Track if copy button is in green (copied) state
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -58,17 +60,29 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjects();
     loadActiveTabInfo();
     updateCopySelectedButton();
+    updateConsoleStats();
     updateActiveProjectDisplay();
     updateReloadButton();
     
-    // Refresh requests periodically
-    setInterval(loadRequests, 1000);
+    // Refresh requests frequently to catch pending requests immediately
+    // Reduced to 100ms for near real-time updates
+    setInterval(loadRequests, 100);
     
     // Refresh tab info periodically
     setInterval(() => {
         loadActiveTabInfo();
         updateReloadButton();
     }, 2000);
+    
+    // Refresh console stats periodically
+    setInterval(() => {
+        updateConsoleStats();
+    }, 2000);
+    
+    // Animate loading dots for pending requests
+    setInterval(() => {
+        animateLoadingDots();
+    }, 500);
 });
 
 // Setup event listeners
@@ -314,6 +328,8 @@ function hideSearchHistory() {
 }
 
 // Load requests from background service worker
+let lastRequestCount = 0;
+
 function loadRequests() {
     // Check if extension context is still valid
     if (!chrome.runtime || !chrome.runtime.id) {
@@ -342,10 +358,22 @@ function loadRequests() {
             isContextInvalidated = false;
             
             if (response && response.requests) {
+                const currentRequestCount = response.requests.length;
+                const hasNewRequests = currentRequestCount > lastRequestCount;
+                
                 allRequests = response.requests;
                 // Re-apply filters after loading requests
                 applyFilters();
                 updateCopySelectedButton();
+                updateConsoleStats();
+                
+                // Update count after processing
+                lastRequestCount = currentRequestCount;
+                
+                // If new requests arrived, immediately refresh again to catch pending ones
+                if (hasNewRequests) {
+                    setTimeout(loadRequests, 50);
+                }
             }
         });
     } catch (error) {
@@ -620,16 +648,22 @@ function renderRequestList() {
     }
     
     requestList.innerHTML = countHtml + filteredRequests.map((req, index) => {
-        const statusClass = getStatusClass(req.status);
+        const isPending = req.pending === true || req.status === null || req.status === undefined;
+        const statusClass = isPending ? 'pending' : getStatusClass(req.status);
         const uriPath = getUriPath(req.url);
         const separator = index > 0 ? '<div class="request-separator"></div>' : '';
         const isChecked = selectedRequestIds.has(req.id);
+        
+        // Show loading indicator for pending requests
+        const statusDisplay = isPending 
+            ? '<span class="request-status-text pending"><span class="loading-dots">.</span></span>'
+            : `<span class="request-status-text ${statusClass}">${req.status}</span>`;
         
         return `${separator}
             <div class="request-item-text" data-request-id="${req.id}" title="${escapeHtml(req.url)}">
                 <input type="checkbox" class="request-checkbox" data-request-id="${req.id}" ${isChecked ? 'checked' : ''}>
                 <span class="request-url-text" data-request-id="${req.id}">${escapeHtml(uriPath)}</span>
-                <span class="request-status-text ${statusClass}">${req.status}</span>
+                ${statusDisplay}
             </div>
         `;
     }).join('');
@@ -671,7 +705,12 @@ function showDetailView(request) {
     // Populate detail view
     document.getElementById('detailUrl').textContent = request.url;
     document.getElementById('detailMethod').textContent = request.method;
-    document.getElementById('detailStatus').textContent = `${request.status} ${request.statusText || ''}`;
+    const isPending = request.pending === true || request.status === null || request.status === undefined;
+    if (isPending) {
+        document.getElementById('detailStatus').innerHTML = '<span class="loading-dots">.</span>';
+    } else {
+        document.getElementById('detailStatus').textContent = `${request.status} ${request.statusText || ''}`;
+    }
     document.getElementById('detailStatus').className = `meta-value status ${getStatusClass(request.status)}`;
     document.getElementById('detailTime').textContent = formatTimestamp(request.timestamp);
     
@@ -1035,6 +1074,17 @@ function renderProjectsDropdown(projects) {
                 Edit Projects
             </div>
         `;
+        
+        // Add event listener for Edit Projects when no projects exist
+        const editItem = projectsDropdown.querySelector('.dropdown-edit');
+        if (editItem) {
+            editItem.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent document click handler from firing
+                projectsDropdown.classList.add('hidden');
+                projectsModal.classList.remove('hidden');
+                loadProjects();
+            });
+        }
     } else {
         const projectsHtml = projects.map(project => {
             const isActive = project.id === activeProjectId;
@@ -1099,27 +1149,92 @@ function selectProject(projectId) {
 // Update copy selected button state
 function updateCopySelectedButton() {
     if (copySelectedBtn) {
-        const count = selectedRequestIds.size;
-        copySelectedBtn.disabled = count === 0;
-        copySelectedBtn.textContent = count > 0 ? `Copy Selected (${count})` : 'Copy Selected';
+        // Reset button state when new data comes in
+        if (isCopyButtonGreen) {
+            copySelectedBtn.classList.remove('copied');
+            isCopyButtonGreen = false;
+        }
+        // Button is always enabled, label stays "COPY"
+        copySelectedBtn.textContent = 'COPY';
+        copySelectedBtn.disabled = false;
+        
+        // Update console stats
+        updateConsoleStats();
     }
+}
+
+// Update console stats display
+function updateConsoleStats() {
+    if (!consoleStats || !copyConsoleCheckbox || !copyConsoleCheckbox.checked) {
+        if (consoleStats) {
+            consoleStats.textContent = '';
+        }
+        return;
+    }
+    
+    chrome.runtime.sendMessage({ type: 'GET_CONSOLE_LOGS' }, (response) => {
+        if (chrome.runtime.lastError || !response || !response.logs) {
+            if (consoleStats) {
+                consoleStats.textContent = '';
+            }
+            return;
+        }
+        
+        const consoleLogs = response.logs || [];
+        if (consoleLogs.length === 0) {
+            if (consoleStats) {
+                consoleStats.textContent = '';
+            }
+            return;
+        }
+        
+        // Calculate lines and token size
+        let totalLines = 0;
+        let totalTokens = 0;
+        
+        consoleLogs.forEach(log => {
+            const message = formatConsoleLogMessage(log);
+            const lines = message.split('\n').length;
+            totalLines += lines;
+            
+            // Estimate tokens (rough approximation: ~4 characters per token)
+            const text = message + (log.stack || '');
+            totalTokens += Math.ceil(text.length / 4);
+        });
+        
+        // Format display
+        const tokenSizeKB = (totalTokens / 1000).toFixed(1);
+        consoleStats.textContent = `${totalLines} lines, ${tokenSizeKB}K tokens`;
+    });
 }
 
 // Copy selected requests to clipboard
 function copySelected() {
-    if (selectedRequestIds.size === 0) {
-        return;
-    }
-    
     // Get selected requests (preserve order from filteredRequests)
     const selectedRequests = filteredRequests.filter(req => selectedRequestIds.has(req.id));
     
-    if (selectedRequests.length === 0) {
+    // Check if console logs should be included
+    const includeConsole = copyConsoleCheckbox && copyConsoleCheckbox.checked;
+    
+    // If no network requests selected but console is checked, just copy console
+    if (selectedRequests.length === 0 && includeConsole) {
+        chrome.runtime.sendMessage({ type: 'GET_CONSOLE_LOGS' }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.error('Error getting console logs:', chrome.runtime.lastError);
+                return;
+            }
+            
+            const consoleLogs = response && response.logs ? response.logs : [];
+            // Copy console logs even if empty (will show header)
+            copyConsoleOnlyToClipboard(consoleLogs);
+        });
         return;
     }
     
-    // Check if console logs should be included
-    const includeConsole = copyConsoleCheckbox && copyConsoleCheckbox.checked;
+    // If no network requests and console not checked, do nothing
+    if (selectedRequests.length === 0) {
+        return;
+    }
     
     // If console logs are requested, fetch them first
     if (includeConsole) {
@@ -1166,6 +1281,32 @@ function copyNetworkRequestsToClipboard(selectedRequests) {
         text += formatData(req.response, false); // Use pretty-printed JSON for readability
         text += '\n';
     });
+    
+    copyTextToClipboard(text);
+}
+
+// Copy console logs only to clipboard
+function copyConsoleOnlyToClipboard(consoleLogs) {
+    let text = '';
+    
+    text += 'Console Logs:\n';
+    text += '='.repeat(80) + '\n\n';
+    
+    if (consoleLogs.length === 0) {
+        text += 'No console logs captured.\n';
+    } else {
+        consoleLogs.forEach((log, index) => {
+            const timestamp = formatConsoleTimestamp(log.timestamp);
+            const level = log.level.toUpperCase();
+            const message = formatConsoleLogMessage(log);
+            const stack = log.stack ? '\n' + log.stack : '';
+            
+            text += `[${timestamp}] [${level}] ${message}${stack}`;
+            if (index < consoleLogs.length - 1) {
+                text += '\n';
+            }
+        });
+    }
     
     copyTextToClipboard(text);
 }
@@ -1260,14 +1401,11 @@ function formatConsoleTimestamp(timestamp) {
 // Copy text to clipboard with feedback
 function copyTextToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
-        // Show feedback
-        const originalText = copySelectedBtn.textContent;
-        copySelectedBtn.textContent = 'Copied!';
-        copySelectedBtn.disabled = true;
-        setTimeout(() => {
-            copySelectedBtn.textContent = originalText;
-            updateCopySelectedButton();
-        }, 2000);
+        // Show green feedback
+        if (copySelectedBtn) {
+            copySelectedBtn.classList.add('copied');
+            isCopyButtonGreen = true;
+        }
     }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy to clipboard. Please try again.');
@@ -1360,6 +1498,9 @@ function formatTimestamp(timestamp) {
 
 // Get status class for styling
 function getStatusClass(status) {
+    if (status === null || status === undefined) {
+        return 'pending';
+    }
     if (status >= 200 && status < 300) {
         return 'success';
     } else if (status >= 400 && status < 500) {
@@ -1643,4 +1784,21 @@ function updateTabInfoDisplay(tabInfo) {
     } else {
         tabFavicon.style.display = 'none';
     }
+}
+
+// Animate loading dots for pending requests
+function animateLoadingDots() {
+    const loadingDots = document.querySelectorAll('.loading-dots');
+    loadingDots.forEach(dot => {
+        const currentText = dot.textContent || '';
+        if (currentText === '') {
+            dot.textContent = '.';
+        } else if (currentText === '.') {
+            dot.textContent = '..';
+        } else if (currentText === '..') {
+            dot.textContent = '...';
+        } else {
+            dot.textContent = '.';
+        }
+    });
 }

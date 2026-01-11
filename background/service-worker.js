@@ -120,12 +120,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     const requestData = message.data;
     
-    // Add to array (add to end, newest at bottom)
-    capturedRequests.push(requestData);
+    // Check if this is an update to an existing pending request
+    const existingIndex = capturedRequests.findIndex(req => req.id === requestData.id);
     
-    // Limit array size (keep most recent items)
-    if (capturedRequests.length > MAX_REQUESTS) {
-      capturedRequests = capturedRequests.slice(-MAX_REQUESTS);
+    if (existingIndex !== -1) {
+      // Update existing request
+      capturedRequests[existingIndex] = requestData;
+    } else {
+      // Add new request (add to end, newest at bottom)
+      capturedRequests.push(requestData);
+      
+      // Limit array size (keep most recent items)
+      if (capturedRequests.length > MAX_REQUESTS) {
+        capturedRequests = capturedRequests.slice(-MAX_REQUESTS);
+      }
     }
     
     // Fire-and-forget message - no response needed
