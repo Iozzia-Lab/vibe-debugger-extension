@@ -330,20 +330,141 @@ button:active {
     color: #6a6a6a;
 }
 
-/* Log Item Row - Three Column Layout */
+/* Log Item Row - Compact Layout with Expand */
 .log-item-row {
     display: grid;
-    grid-template-columns: 40px 1fr 40px;
-    gap: 8px;
-    align-items: start;
-    margin-bottom: 4px;
+    grid-template-columns: 40px 80px 1fr 200px 24px 40px;
+    gap: 12px;
+    align-items: center;
+    padding: 6px 12px;
+    border-bottom: 1px solid #3e3e42;
+    cursor: pointer;
     transition: background-color 0.2s;
+    position: relative;
+}
+
+.log-item-row:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.log-item-row.expanded {
+    grid-template-rows: auto auto;
 }
 
 .log-item-row.selected-range {
     background-color: rgba(14, 99, 156, 0.15);
     border-left: 3px solid #0e639c;
-    border-radius: 2px;
+}
+
+.log-type-column {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.log-level-badge {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.log-level-badge.log {
+    background: #3e3e42;
+    color: #d4d4d4;
+}
+
+.log-level-badge.error {
+    background: #f48771;
+    color: #fff;
+}
+
+.log-level-badge.warn {
+    background: #ce9178;
+    color: #fff;
+}
+
+.log-level-badge.info {
+    background: #4fc1ff;
+    color: #fff;
+}
+
+.log-level-badge.debug {
+    background: #858585;
+    color: #fff;
+}
+
+.log-content-column {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    color: #d4d4d4;
+}
+
+.log-position-column {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 10px;
+    color: #858585;
+    white-space: nowrap;
+}
+
+.log-timestamp {
+    color: #858585;
+}
+
+.log-location {
+    color: #6a6a6a;
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.log-expand-indicator {
+    text-align: center;
+    font-size: 10px;
+    color: #858585;
+    transition: transform 0.2s;
+    user-select: none;
+}
+
+.log-item-row.expanded .log-expand-indicator {
+    transform: rotate(180deg);
+}
+
+.log-expanded-details {
+    grid-column: 1 / -1;
+    padding: 12px;
+    background: #1e1e1e;
+    border-top: 1px solid #3e3e42;
+    margin-top: 6px;
+}
+
+.log-full-message,
+.log-args,
+.log-stack {
+    margin-bottom: 8px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #d4d4d4;
+}
+
+.log-full-message {
+    color: #d4d4d4;
+}
+
+.log-args {
+    color: #858585;
+    padding-left: 12px;
+}
+
+.log-stack {
+    color: #858585;
+    font-size: 10px;
 }
 
 .trim-checkbox-container {

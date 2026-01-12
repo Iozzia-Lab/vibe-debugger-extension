@@ -10,6 +10,7 @@ let selectedStartIndex = null; // Index in filteredLogs array for start trim poi
 let selectedEndIndex = null; // Index in filteredLogs array for end trim point
 let isUpdatingTrimSelection = false; // Flag to prevent loadLogs from interfering during trim selection
 let clickEvents = []; // Array of click event objects: { logIndex, label, timestamp, log }
+let expandedRows = new Set(); // Set of expanded row indices
 
 // DOM Elements
 const logList = document.getElementById('logList');
@@ -128,6 +129,7 @@ function setupMessageListener() {
                     searchInput.value = '';
                     selectedStartIndex = null;
                     selectedEndIndex = null;
+                    expandedRows.clear();
                     clickEvents = [];
                     renderTimeline(clickEvents);
                     renderLogList();
@@ -243,6 +245,7 @@ function applyFilters(preserveTrimSelection = false) {
     if (!preserveTrimSelection) {
         selectedStartIndex = null;
         selectedEndIndex = null;
+        expandedRows.clear(); // Clear expanded rows when filters change
     } else {
         // Try to restore trim selection by finding the same log objects in the new filtered array
         if (selectedStartLog) {
@@ -319,8 +322,10 @@ function renderLogList() {
     logList.innerHTML = filteredLogs.map((log, index) => {
         const timestamp = formatTimestamp(log.timestamp);
         const level = log.level.toUpperCase();
-        const message = formatLogMessage(log);
-        const stack = log.stack ? `<div class="log-stack">${escapeHtml(log.stack)}</div>` : '';
+        const messagePreview = formatLogMessagePreview(log);
+        const fullMessage = formatLogMessage(log);
+        const stackLocation = extractStackLocation(log.stack || '');
+        const isExpanded = expandedRows.has(index);
         
         // Determine checkbox states and [-] indicators
         const isStartRow = currentStartIndex !== null && currentStartIndex === index;
@@ -350,8 +355,14 @@ function renderLogList() {
                                    index >= currentStartIndex && 
                                    (currentEndIndex === null || index <= currentEndIndex);
         
+        // Format expanded details
+        const formattedArgs = formatLogArgs(log);
+        const stackTrace = log.stack ? escapeHtml(log.stack) : '';
+        
         return `
-            <div class="log-item-row ${log.level} ${isInSelectedRange ? 'selected-range' : ''}">
+            <div class="log-item-row ${log.level} ${isInSelectedRange ? 'selected-range' : ''} ${isExpanded ? 'expanded' : ''}" 
+                 data-index="${index}" 
+                 data-expanded="${isExpanded}">
                 <div class="trim-checkbox-container">
                     <input type="checkbox" 
                            class="trim-checkbox trim-start" 
@@ -362,16 +373,17 @@ function renderLogList() {
                            ${startDisabled ? 'disabled' : ''}
                            title="${startDisabled ? 'Cannot select start after end point' : 'Set as start point'}">
                 </div>
-                <div class="log-item-content">
-                    <div class="log-item ${log.level}">
-                        <div class="log-item-header">
-                            <span class="log-level">${level}</span>
-                            <span class="log-timestamp">${timestamp}</span>
-                        </div>
-                        <div class="log-message">${message}</div>
-                        ${stack}
-                    </div>
+                <div class="log-type-column">
+                    <span class="log-level-badge ${log.level}">${level}</span>
                 </div>
+                <div class="log-content-column">
+                    <span class="log-message-preview">${messagePreview}</span>
+                </div>
+                <div class="log-position-column">
+                    <span class="log-timestamp">${timestamp}</span>
+                    ${stackLocation ? `<span class="log-location">${escapeHtml(stackLocation)}</span>` : ''}
+                </div>
+                <div class="log-expand-indicator">▼</div>
                 <div class="trim-checkbox-container">
                     <input type="checkbox" 
                            class="trim-checkbox trim-end" 
@@ -382,6 +394,13 @@ function renderLogList() {
                            ${endDisabled ? 'disabled' : ''}
                            title="${endDisabled ? 'Cannot select end before start point' : 'Set as end point'}">
                 </div>
+                ${isExpanded ? `
+                <div class="log-expanded-details">
+                    <div class="log-full-message">${fullMessage}</div>
+                    ${formattedArgs ? `<div class="log-args">Args:\n${formattedArgs}</div>` : ''}
+                    ${stackTrace ? `<div class="log-stack">Stack:\n${stackTrace}</div>` : ''}
+                </div>
+                ` : ''}
             </div>
         `;
     }).join('');
@@ -393,10 +412,48 @@ function renderLogList() {
         setIndeterminateStates();
         // Sync timeline with trim selection
         syncTimelineWithTrimSelection();
+        // Attach row expansion handlers
+        attachRowExpansionHandlers();
     }, 0);
     
     // Update counts display
     updateCountsDisplay();
+}
+
+// Toggle row expansion
+function toggleRowExpansion(index) {
+    if (expandedRows.has(index)) {
+        expandedRows.delete(index);
+    } else {
+        expandedRows.add(index);
+    }
+    // Re-render the affected row
+    renderLogList();
+}
+
+// Attach row expansion click handlers
+function attachRowExpansionHandlers() {
+    const rows = document.querySelectorAll('.log-item-row');
+    rows.forEach(row => {
+        // Check if handler already attached (using data attribute)
+        if (row.dataset.expansionHandlerAttached === 'true') {
+            return;
+        }
+        
+        // Mark as having handler attached
+        row.dataset.expansionHandlerAttached = 'true';
+        
+        // Add click handler to row (but not to checkboxes)
+        row.addEventListener('click', (e) => {
+            // Don't expand if clicking on checkboxes
+            if (e.target.classList.contains('trim-checkbox') || e.target.closest('.trim-checkbox-container')) {
+                return;
+            }
+            
+            const index = parseInt(row.getAttribute('data-index'));
+            toggleRowExpansion(index);
+        });
+    });
 }
 
 // Set indeterminate state on checkboxes based on data-indeterminate attribute
@@ -632,7 +689,7 @@ function syncTimelineWithTrimSelection() {
     renderTimeline(clickEvents);
 }
 
-// Format log message
+// Format log message (full version)
 function formatLogMessage(log) {
     if (log.args && log.args.length > 0) {
         return log.args.map(arg => {
@@ -651,6 +708,73 @@ function formatLogMessage(log) {
         }).join(' ');
     }
     return escapeHtml(log.message || '');
+}
+
+// Format log message preview (truncated for compact view)
+function formatLogMessagePreview(log) {
+    const fullMessage = formatLogMessage(log);
+    if (!fullMessage) return '(empty)';
+    
+    // Get first line or truncate to ~100 chars
+    const firstLine = fullMessage.split('\n')[0];
+    if (firstLine.length <= 100) {
+        return firstLine;
+    }
+    return firstLine.substring(0, 100) + '...';
+}
+
+// Extract stack trace location (file:line)
+function extractStackLocation(stack) {
+    if (!stack) return '';
+    
+    // Try to match patterns like:
+    // at functionName (file://path/to/file.js:123:45)
+    // at file://path/to/file.js:123:45
+    // at http://domain.com/file.js:123:45
+    const patterns = [
+        /at\s+(?:[^\s]+\s+\()?([^:]+):(\d+)(?::(\d+))?/,
+        /\(([^:]+):(\d+)(?::(\d+))?\)/
+    ];
+    
+    for (const pattern of patterns) {
+        const match = stack.match(pattern);
+        if (match) {
+            const file = match[1].split('/').pop(); // Get filename only
+            const line = match[2];
+            return `${file}:${line}`;
+        }
+    }
+    
+    return '';
+}
+
+// Format args for expanded view
+function formatLogArgs(log) {
+    if (!log.args || log.args.length === 0) {
+        return '';
+    }
+    
+    return log.args.map((arg, index) => {
+        let formatted = '';
+        if (arg === null) {
+            formatted = 'null';
+        } else if (arg === undefined) {
+            formatted = 'undefined';
+        } else if (typeof arg === 'string') {
+            formatted = escapeHtml(arg);
+        } else if (typeof arg === 'number' || typeof arg === 'boolean') {
+            formatted = String(arg);
+        } else if (typeof arg === 'object') {
+            try {
+                formatted = escapeHtml(JSON.stringify(arg, null, 2));
+            } catch (e) {
+                formatted = escapeHtml(String(arg));
+            }
+        } else {
+            formatted = escapeHtml(String(arg));
+        }
+        return `[${index}]: ${formatted}`;
+    }).join('\n');
 }
 
 // Format timestamp
@@ -679,12 +803,18 @@ function clearAllLogs() {
             searchInput.value = '';
             selectedStartIndex = null;
             selectedEndIndex = null;
+            expandedRows.clear();
             clickEvents = [];
             renderTimeline(clickEvents);
             renderLogList();
             updateCountsDisplay();
         }
     });
+}
+
+// Clear expanded rows when logs are cleared
+function clearExpandedRows() {
+    expandedRows.clear();
 }
 
 // Attach event listeners to trim checkboxes
@@ -789,14 +919,17 @@ function copyAllLogs() {
         logsToCopy.forEach((log, index) => {
             const timestamp = formatTimestamp(log.timestamp);
             const level = log.level.toUpperCase();
-            const message = formatLogMessage(log);
-            const stack = log.stack ? '\n' + log.stack : '';
+            const messagePreview = formatLogMessagePreview(log);
             
-            text += `[${timestamp}] [${level}] ${message}${stack}`;
+            // One representative line per log entry
+            text += `[${timestamp}] [${level}] ${messagePreview}`;
             if (index < logsToCopy.length - 1) {
                 text += '\n';
             }
         });
+        
+        // Add ending message
+        text += `\n\nThese are the ${logsToCopy.length} log entries initial rows - please let me know which entries you need to see the details of if any.`;
         
         // Copy to clipboard
         navigator.clipboard.writeText(text).then(() => {

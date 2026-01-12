@@ -10,6 +10,47 @@
   if (window.__NETWORK_CAPTURE_INJECTED) {
     return;
   }
+  
+  // Check if current page is a CAPTCHA-related page or security-sensitive
+  // If so, don't inject at all to avoid interference
+  function isCaptchaPageCheck() {
+    try {
+      const hostname = window.location.hostname.toLowerCase();
+      const pathname = window.location.pathname.toLowerCase();
+      const fullUrl = (hostname + pathname).toLowerCase();
+      
+      const captchaPatterns = [
+        'recaptcha',
+        'hcaptcha',
+        'funcaptcha',
+        'cloudflare.com/challenges',
+        'challenges.cloudflare.com',
+        'twilio.com', // Twilio login pages
+        'auth0.com', // Common 2FA provider
+        'okta.com', // Common 2FA provider
+        'duo.com', // Common 2FA provider
+        'microsoft.com/identity', // Microsoft 2FA
+        'accounts.google.com', // Google 2FA
+        'login.microsoftonline.com' // Microsoft 2FA
+      ];
+      
+      for (let i = 0; i < captchaPatterns.length; i++) {
+        if (fullUrl.indexOf(captchaPatterns[i]) !== -1) {
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+  
+  // Exit early if this is a CAPTCHA/2FA page
+  if (isCaptchaPageCheck()) {
+    return;
+  }
+  
   window.__NETWORK_CAPTURE_INJECTED = true;
   
   // Generate unique request ID
@@ -25,7 +66,14 @@
   }
   
   // Send captured request to content script via postMessage
+  // Note: Background service worker filters by monitoredTabId, so we send from all tabs
+  // but only data from monitored tab is stored/returned. Also skip CAPTCHA pages.
   function sendToContentScript(data) {
+    // Skip if on CAPTCHA page
+    if (isCaptchaPage()) {
+      return;
+    }
+    
     window.postMessage({
       type: 'NETWORK_CAPTURE_REQUEST',
       data: data
@@ -33,7 +81,14 @@
   }
   
   // Send captured console log to content script via postMessage
+  // Note: Background service worker filters by monitoredTabId, so we send from all tabs
+  // but only data from monitored tab is stored/returned. Also skip CAPTCHA pages.
   function sendConsoleLogToContentScript(data) {
+    // Skip if on CAPTCHA page
+    if (isCaptchaPage()) {
+      return;
+    }
+    
     window.postMessage({
       type: 'CONSOLE_CAPTURE_LOG',
       data: data
@@ -105,7 +160,7 @@
     const urlLower = urlString.toLowerCase();
     
     // CAPTCHA-related domains and paths
-    const captchaPatterns = [
+    const exclusionPatterns = [
       'recaptcha',
       'hcaptcha',
       'funcaptcha',
@@ -114,12 +169,18 @@
       'gstatic.com/recaptcha',
       'twilio.com', // Twilio uses CAPTCHA for login
       'cloudflare.com/api/v4', // Cloudflare API endpoints
-      'challenges.cloudflare.com'
+      'challenges.cloudflare.com',
+      'auth0.com', // Common 2FA provider
+      'okta.com', // Common 2FA provider
+      'duo.com', // Common 2FA provider
+      'microsoft.com/identity', // Microsoft 2FA
+      'accounts.google.com', // Google 2FA
+      'login.microsoftonline.com' // Microsoft 2FA
     ];
     
-    // Check if URL matches any CAPTCHA pattern
-    for (let i = 0; i < captchaPatterns.length; i++) {
-      if (urlLower.indexOf(captchaPatterns[i]) !== -1) {
+    // Check if URL matches any exclusion pattern
+    for (let i = 0; i < exclusionPatterns.length; i++) {
+      if (urlLower.indexOf(exclusionPatterns[i]) !== -1) {
         return true;
       }
     }
@@ -127,7 +188,7 @@
     return false;
   }
   
-  // Check if current page is a CAPTCHA-related page
+  // Check if current page is a CAPTCHA-related page or security-sensitive
   function isCaptchaPage() {
     try {
       const hostname = window.location.hostname.toLowerCase();
@@ -140,7 +201,13 @@
         'funcaptcha',
         'cloudflare.com/challenges',
         'challenges.cloudflare.com',
-        'twilio.com' // Twilio login pages
+        'twilio.com', // Twilio login pages
+        'auth0.com', // Common 2FA provider
+        'okta.com', // Common 2FA provider
+        'duo.com', // Common 2FA provider
+        'microsoft.com/identity', // Microsoft 2FA
+        'accounts.google.com', // Google 2FA
+        'login.microsoftonline.com' // Microsoft 2FA
       ];
       
       for (let i = 0; i < captchaPatterns.length; i++) {
@@ -162,7 +229,8 @@
     const url = args[0];
     
     // Skip interception for CAPTCHA and security-sensitive requests
-    if (shouldExcludeRequest(url)) {
+    // Also skip if we're on a CAPTCHA page
+    if (shouldExcludeRequest(url) || isCaptchaPage()) {
       return originalFetch.apply(this, args);
     }
     
@@ -307,8 +375,8 @@
       requestData.method = (method || 'GET').toUpperCase();
       requestData.url = url;
       
-      // Check if this URL should be excluded
-      if (shouldExcludeRequest(url)) {
+      // Check if this URL should be excluded or if we're on a CAPTCHA page
+      if (shouldExcludeRequest(url) || isCaptchaPage()) {
         requestData.excluded = true;
         // Don't override methods for excluded requests, just use originals
         return originalOpen.apply(this, arguments);

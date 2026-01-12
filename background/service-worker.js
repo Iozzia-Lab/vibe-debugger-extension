@@ -18,6 +18,50 @@ let markupViewerWindowId = null; // Track markup viewer window ID
 // Track the tab ID being monitored (where side panel was opened)
 let monitoredTabId = null;
 
+// Cleanup interval to remove stale data from closed tabs
+let cleanupInterval = null;
+
+// Periodic cleanup of stale data (every 5 minutes)
+function startCleanupInterval() {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+  }
+  
+  cleanupInterval = setInterval(async () => {
+    try {
+      // Get all open tabs
+      const openTabs = await chrome.tabs.query({});
+      const openTabIds = new Set(openTabs.map(tab => tab.id));
+      
+      // Remove data for closed tabs
+      const requestsBefore = capturedRequests.length;
+      const logsBefore = capturedConsoleLogs.length;
+      
+      capturedRequests = capturedRequests.filter(req => {
+        if (req.tabId === null) return true; // Keep requests without tabId
+        return openTabIds.has(req.tabId);
+      });
+      
+      capturedConsoleLogs = capturedConsoleLogs.filter(log => {
+        if (log.tabId === null) return true; // Keep logs without tabId
+        return openTabIds.has(log.tabId);
+      });
+      
+      const requestsRemoved = requestsBefore - capturedRequests.length;
+      const logsRemoved = logsBefore - capturedConsoleLogs.length;
+      
+      if (requestsRemoved > 0 || logsRemoved > 0) {
+        console.log(`[Network Capture] Cleanup: Removed ${requestsRemoved} requests and ${logsRemoved} logs from closed tabs`);
+      }
+    } catch (e) {
+      console.error('[Network Capture] Error during cleanup:', e);
+    }
+  }, 5 * 60 * 1000); // Every 5 minutes
+}
+
+// Start cleanup interval
+startCleanupInterval();
+
 // Load monitoredTabId from storage on startup
 chrome.storage.local.get(['monitoredTabId'], (result) => {
   if (result.monitoredTabId) {
@@ -35,12 +79,17 @@ chrome.storage.local.get(['monitoredTabId'], (result) => {
   }
 });
 
-// Clear monitoredTabId when tab is closed
+// Clear monitoredTabId when tab is closed and clean up data
 chrome.tabs.onRemoved.addListener((tabId) => {
+  // Clean up data for the closed tab
+  capturedRequests = capturedRequests.filter(req => req.tabId !== tabId);
+  capturedConsoleLogs = capturedConsoleLogs.filter(log => log.tabId !== tabId);
+  
+  // If it was the monitored tab, clear tracking
   if (monitoredTabId === tabId) {
     monitoredTabId = null;
     chrome.storage.local.remove(['monitoredTabId']);
-    console.log('[Network Capture] Monitored tab closed, cleared tracking');
+    console.log('[Network Capture] Monitored tab closed, cleared tracking and data');
   }
 });
 
@@ -51,8 +100,13 @@ function clearTabData() {
 }
 
 // Register content script in MAIN world (page context) on install
+// We register globally but the script checks if it should run based on tab monitoring
 chrome.runtime.onInstalled.addListener(async () => {
+  // Clear all data on install/update
   capturedRequests = [];
+  capturedConsoleLogs = [];
+  monitoredTabId = null;
+  chrome.storage.local.remove(['monitoredTabId']);
   
   try {
     // Unregister existing script if any
@@ -63,6 +117,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     }
     
     // Register injected script to run in page context (MAIN world)
+    // But it will only capture data if the tab is being monitored
     await chrome.scripting.registerContentScripts([{
       id: 'network-capture-injected',
       js: ['content/injected.js'],
@@ -73,30 +128,61 @@ chrome.runtime.onInstalled.addListener(async () => {
     }]);
     
     console.log('[Network Capture] Registered injected script in MAIN world');
-    
-    // Also inject into all existing tabs
-    const tabs = await chrome.tabs.query({});
-    for (const tab of tabs) {
-      if (tab.url && (tab.url.startsWith('http') || tab.url.startsWith('https'))) {
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ['content/injected.js'],
-            world: 'MAIN'
-          });
-        } catch (e) {
-          // Ignore errors (e.g., chrome:// pages)
-          console.log('[Network Capture] Could not inject into tab:', tab.url);
-        }
-      }
-    }
   } catch (err) {
     console.error('[Network Capture] Failed to register script:', err);
   }
+  
+  console.log('[Network Capture] Extension installed/updated, cleared all data');
 });
+
+// Check if URL should be excluded from injection (CAPTCHA, security-sensitive)
+function shouldExcludeTab(url) {
+  if (!url) return true; // Exclude invalid URLs
+  
+  const urlString = url.toLowerCase();
+  
+  // Exclude non-HTTP(S) URLs
+  if (!urlString.startsWith('http://') && !urlString.startsWith('https://')) {
+    return true;
+  }
+  
+  // CAPTCHA and security-sensitive patterns
+  const exclusionPatterns = [
+    'recaptcha',
+    'hcaptcha',
+    'funcaptcha',
+    'cloudflare.com/challenges',
+    'challenges.cloudflare.com',
+    'google.com/recaptcha',
+    'googleapis.com/recaptcha',
+    'gstatic.com/recaptcha',
+    'twilio.com', // Twilio uses CAPTCHA for login
+    'cloudflare.com/api/v4',
+    'auth0.com', // Common 2FA provider
+    'okta.com', // Common 2FA provider
+    'duo.com', // Common 2FA provider
+    'microsoft.com/identity', // Microsoft 2FA
+    'accounts.google.com', // Google 2FA
+    'login.microsoftonline.com' // Microsoft 2FA
+  ];
+  
+  for (const pattern of exclusionPatterns) {
+    if (urlString.includes(pattern)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
 
 // Open side panel when extension icon is clicked - tied to specific tab
 chrome.action.onClicked.addListener(async (tab) => {
+  // Check if this tab should be excluded
+  if (shouldExcludeTab(tab.url)) {
+    console.log('[Network Capture] Tab excluded from monitoring:', tab.url);
+    return;
+  }
+  
   // Clear data if switching to a different tab
   if (monitoredTabId !== null && monitoredTabId !== tab.id) {
     clearTabData();
@@ -130,23 +216,53 @@ chrome.action.onClicked.addListener(async (tab) => {
           files: ['content/injected.js'],
           world: 'MAIN'
         });
-        console.log('[Network Capture] Scripts already injected in tab:', tab.id);
+        console.log('[Network Capture] Injected script into tab:', tab.id, 'URL:', tab.url);
+        
+        // After injection, verify it's working by checking again
+        setTimeout(async () => {
+          try {
+            const verifyInjected = await chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              func: () => {
+                return !!window.__NETWORK_CAPTURE_INJECTED;
+              },
+              world: 'MAIN'
+            });
+            
+            if (!verifyInjected || !verifyInjected[0] || !verifyInjected[0].result) {
+              console.warn('[Network Capture] Script injection verification failed, page may need reload');
+            } else {
+              console.log('[Network Capture] Script injection verified successfully');
+            }
+          } catch (verifyError) {
+            console.error('[Network Capture] Error verifying injection:', verifyError);
+          }
+        }, 500);
+      } else {
+        console.log('[Network Capture] Script already injected in tab:', tab.id);
       }
     } catch (e) {
-      console.error('[Network Capture] Error injecting script:', e);
+      console.error('[Network Capture] Error injecting script into tab:', tab.id, 'Error:', e);
+      // Don't auto-reload - let user know they may need to reload
+      console.log('[Network Capture] If no data appears, try reloading the page');
     }
+  } else {
+    console.log('[Network Capture] Tab URL not HTTP(S), skipping injection:', tab.url);
   }
 });
 
 // Listen for messages from content scripts and side panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'NETWORK_REQUEST') {
-    // Only capture if recording is enabled
-    if (isRecording) {
+    // Only capture if recording is enabled AND this is the monitored tab
+    const tabId = sender.tab ? sender.tab.id : null;
+    
+    // Only capture from monitored tab (or if no tab is monitored yet, capture from any tab)
+    if (isRecording && (monitoredTabId === null || tabId === monitoredTabId)) {
       // Add tabId to request data
       const requestData = {
         ...message.data,
-        tabId: sender.tab ? sender.tab.id : null
+        tabId: tabId
       };
       
       // Check if this is an update to an existing request
@@ -171,12 +287,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   
   if (message.type === 'CONSOLE_LOG') {
-    // Only capture if console recording is enabled
-    if (isConsoleRecording) {
+    // Only capture if console recording is enabled AND this is the monitored tab
+    const tabId = sender.tab ? sender.tab.id : null;
+    
+    // Only capture from monitored tab (or if no tab is monitored yet, capture from any tab)
+    if (isConsoleRecording && (monitoredTabId === null || tabId === monitoredTabId)) {
       // Add console log with tab ID
       const logEntry = {
         ...message.data,
-        tabId: sender.tab ? sender.tab.id : null
+        tabId: tabId
       };
       
       capturedConsoleLogs.push(logEntry);
