@@ -13,9 +13,36 @@ let capturedConsoleLogs = [];
 const MAX_CONSOLE_LOGS = 500; // Limit to prevent memory issues
 let isConsoleRecording = true; // Default to recording on
 let consoleViewerWindowId = null; // Track console viewer window ID
+let markupViewerWindowId = null; // Track markup viewer window ID
 
 // Track the tab ID being monitored (where side panel was opened)
 let monitoredTabId = null;
+
+// Load monitoredTabId from storage on startup
+chrome.storage.local.get(['monitoredTabId'], (result) => {
+  if (result.monitoredTabId) {
+    // Verify tab still exists
+    chrome.tabs.get(result.monitoredTabId, (tab) => {
+      if (chrome.runtime.lastError) {
+        // Tab no longer exists, clear it
+        chrome.storage.local.remove(['monitoredTabId']);
+        monitoredTabId = null;
+      } else {
+        monitoredTabId = result.monitoredTabId;
+        console.log('[Network Capture] Restored monitored tab:', monitoredTabId);
+      }
+    });
+  }
+});
+
+// Clear monitoredTabId when tab is closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (monitoredTabId === tabId) {
+    monitoredTabId = null;
+    chrome.storage.local.remove(['monitoredTabId']);
+    console.log('[Network Capture] Monitored tab closed, cleared tracking');
+  }
+});
 
 // Clear data when switching to a new monitored tab
 function clearTabData() {
@@ -77,277 +104,174 @@ chrome.action.onClicked.addListener(async (tab) => {
   
   // Set the monitored tab to the tab where panel was opened
   monitoredTabId = tab.id;
+  // Persist to storage
+  chrome.storage.local.set({ monitoredTabId: tab.id });
   
-  // Open side panel for this specific tab
+  // Open side panel FIRST (must be in response to user gesture)
   await chrome.sidePanel.open({ tabId: tab.id });
-});
-
-// Listen for tab updates (URL changes, etc.)
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  // If the monitored tab's URL changed, clear data
-  if (tabId === monitoredTabId && changeInfo.url) {
-    clearTabData();
-  }
   
-  // Existing injection logic
-  if (changeInfo.status === 'loading' && tab.url && 
-      (tab.url.startsWith('http') || tab.url.startsWith('https'))) {
+  // Then inject scripts into the page if not already injected
+  // This ensures data flows immediately without requiring a page reload
+  if (tab.url && (tab.url.startsWith('http') || tab.url.startsWith('https'))) {
     try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        files: ['content/injected.js'],
-        world: 'MAIN',
-        runAt: 'document_start'
+      // Check if script is already injected
+      const isInjected = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          return !!window.__NETWORK_CAPTURE_INJECTED;
+        },
+        world: 'MAIN'
       });
+      
+      // Only inject if not already present
+      if (!isInjected || !isInjected[0] || !isInjected[0].result) {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content/injected.js'],
+          world: 'MAIN'
+        });
+        console.log('[Network Capture] Scripts already injected in tab:', tab.id);
+      }
     } catch (e) {
-      // Ignore errors
+      console.error('[Network Capture] Error injecting script:', e);
     }
   }
 });
 
-// Single message listener for all message types
+// Listen for messages from content scripts and side panel
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'NETWORK_REQUEST') {
     // Only capture if recording is enabled
-    if (!isRecording) {
-      return false;
-    }
-    
-    // Only capture from monitored tab
-    if (!sender.tab || sender.tab.id !== monitoredTabId) {
-      return false;
-    }
-    
-    const requestData = message.data;
-    
-    // Check if this is an update to an existing pending request
-    const existingIndex = capturedRequests.findIndex(req => req.id === requestData.id);
-    
-    if (existingIndex !== -1) {
-      // Update existing request
-      capturedRequests[existingIndex] = requestData;
-    } else {
-      // Add new request (add to end, newest at bottom)
-      capturedRequests.push(requestData);
+    if (isRecording) {
+      // Add tabId to request data
+      const requestData = {
+        ...message.data,
+        tabId: sender.tab ? sender.tab.id : null
+      };
       
-      // Limit array size (keep most recent items)
-      if (capturedRequests.length > MAX_REQUESTS) {
-        capturedRequests = capturedRequests.slice(-MAX_REQUESTS);
+      // Check if this is an update to an existing request
+      const existingIndex = capturedRequests.findIndex(req => req.id === message.data.id);
+      
+      if (existingIndex >= 0) {
+        // Update existing request
+        capturedRequests[existingIndex] = requestData;
+      } else {
+        // Add new request
+        capturedRequests.push(requestData);
+        
+        // Limit array size
+        if (capturedRequests.length > MAX_REQUESTS) {
+          capturedRequests.shift(); // Remove oldest
+        }
       }
     }
     
-    // Fire-and-forget message - no response needed
-    // Return false to indicate synchronous handling
-    return false;
+    sendResponse({ success: true });
+    return false; // Keep channel open for async response
   }
   
-  if (message.type === 'SET_RECORDING_STATE') {
-    isRecording = message.isRecording !== undefined ? message.isRecording : true;
+  if (message.type === 'CONSOLE_LOG') {
+    // Only capture if console recording is enabled
+    if (isConsoleRecording) {
+      // Add console log with tab ID
+      const logEntry = {
+        ...message.data,
+        tabId: sender.tab ? sender.tab.id : null
+      };
+      
+      capturedConsoleLogs.push(logEntry);
+      
+      // Limit array size
+      if (capturedConsoleLogs.length > MAX_CONSOLE_LOGS) {
+        capturedConsoleLogs.shift(); // Remove oldest
+      }
+    }
+    
     sendResponse({ success: true });
-    return false;
+    return false; // Keep channel open for async response
   }
   
   if (message.type === 'GET_REQUESTS') {
-    // Return all captured requests
-    sendResponse({ requests: capturedRequests });
-    return false; // Synchronous response sent
-  }
-  
-  if (message.type === 'CLEAR_REQUESTS') {
-    // Clear all requests
-    capturedRequests = [];
-    
-    // Also clear project log file if active project exists
-    chrome.storage.local.get(['activeProjectId', 'projectLogs'], (result) => {
-      const activeProjectId = result.activeProjectId;
-      if (activeProjectId) {
-        const projectLogs = result.projectLogs || {};
-        projectLogs[activeProjectId] = [];
-        chrome.storage.local.set({ projectLogs: projectLogs });
-      }
-    });
-    
-    sendResponse({ success: true });
-    return false; // Synchronous response sent
-  }
-  
-  if (message.type === 'GET_REQUEST_COUNT') {
-    // Return request count
-    sendResponse({ count: capturedRequests.length });
-    return false; // Synchronous response sent
-  }
-  
-  if (message.type === 'GET_MONITORED_TAB_ID') {
-    // Return monitored tab ID
-    sendResponse({ tabId: monitoredTabId });
-    return false; // Synchronous response sent
-  }
-  
-  // Screenshot selection messages - forward to side panel
-  // These messages come from content scripts and need to be forwarded
-  // The side panel will handle them via its own chrome.runtime.onMessage listener
-  if (message.type === 'SCREENSHOT_SELECTION_COMPLETE' || message.type === 'SCREENSHOT_SELECTION_CANCELLED') {
-    // Don't send response - let side panel handle it
-    // Return false to indicate we're not handling it here
-    // The side panel listener will receive this message
-    return false;
-  }
-  
-  if (message.type === 'OPEN_POPUP') {
-    // Open the popup
-    chrome.action.openPopup();
-    sendResponse({ success: true });
-    return false;
-  }
-  
-  if (message.type === 'TOGGLE_SIDE_PANEL') {
-    // Toggle side panel using Chrome Side Panel API
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]) {
-        chrome.sidePanel.open({ tabId: tabs[0].id });
-      }
-    });
-    sendResponse({ success: true });
-    return false;
-  }
-  
-  if (message.type === 'CLOSE_SIDE_PANEL') {
-    // Close side panel - Chrome handles this automatically when user clicks X
-    // But we can set it to disabled if needed
-    sendResponse({ success: true });
-    return false;
-  }
-  
-  if (message.type === 'RELOAD_PAGE') {
-    // Reload the monitored tab with hard reload (bypass cache)
+    // Filter requests by monitored tab if specified
+    let requestsToReturn = capturedRequests;
     if (monitoredTabId !== null) {
-      chrome.tabs.reload(monitoredTabId, { bypassCache: true });
-    }
-    sendResponse({ success: true });
-    return false;
-  }
-  
-  // Console log handling
-  if (message.type === 'CONSOLE_LOG') {
-    // Only capture if console recording is enabled
-    if (!isConsoleRecording) {
-      return false;
+      requestsToReturn = capturedRequests.filter(req => req.tabId === monitoredTabId);
     }
     
-    const logData = message.data;
-    
-    // Handle messages from side panel (no sender.tab) or from content script (has sender.tab)
-    let tabId = null;
-    if (sender.tab) {
-      // Message from content script - only capture from monitored tab
-      if (sender.tab.id !== monitoredTabId) {
-        return false;
-      }
-      tabId = sender.tab.id;
-    } else if (message.tabId) {
-      // Message from side panel with explicit tabId - use it if it matches monitored tab
-      if (message.tabId !== monitoredTabId) {
-        return false;
-      }
-      tabId = message.tabId;
-    } else {
-      // No tab info - skip
-      return false;
-    }
-    
-    // Add tab ID to log data for filtering
-    logData.tabId = tabId;
-    
-    // Add to array (add to end, newest at bottom)
-    capturedConsoleLogs.push(logData);
-    
-    // Limit array size (keep most recent items)
-    if (capturedConsoleLogs.length > MAX_CONSOLE_LOGS) {
-      capturedConsoleLogs = capturedConsoleLogs.slice(-MAX_CONSOLE_LOGS);
-    }
-    
-    // Also save to project log file if active project exists
-    chrome.storage.local.get(['activeProjectId', 'projectLogs'], (result) => {
-      const activeProjectId = result.activeProjectId;
-      if (activeProjectId) {
-        const projectLogs = result.projectLogs || {};
-        if (!projectLogs[activeProjectId]) {
-          projectLogs[activeProjectId] = [];
-        }
-        projectLogs[activeProjectId].push(logData);
-        
-        // Limit project log size (keep most recent items)
-        if (projectLogs[activeProjectId].length > MAX_CONSOLE_LOGS) {
-          projectLogs[activeProjectId] = projectLogs[activeProjectId].slice(-MAX_CONSOLE_LOGS);
-        }
-        
-        chrome.storage.local.set({ projectLogs: projectLogs });
-      }
-    });
-    
-    // Fire-and-forget message - no response needed
-    return false;
-  }
-  
-  if (message.type === 'GET_ACTIVE_TAB_INFO') {
-    // Return monitored tab information
-    if (monitoredTabId === null) {
-      sendResponse({ tabInfo: null });
-      return false;
-    }
-    
-    chrome.tabs.get(monitoredTabId, (tab) => {
-      if (chrome.runtime.lastError) {
-        sendResponse({ tabInfo: null });
-        return;
-      }
-      
-      sendResponse({
-        tabInfo: {
-          id: tab.id,
-          title: tab.title || 'Untitled',
-          url: tab.url || '',
-          favIconUrl: tab.favIconUrl || null
-        }
-      });
-    });
-    
-    return true; // Async response
-  }
-  
-  if (message.type === 'SET_CONSOLE_RECORDING_STATE') {
-    isConsoleRecording = message.isRecording !== undefined ? message.isRecording : true;
-    sendResponse({ success: true });
+    sendResponse({ requests: requestsToReturn });
     return false;
   }
   
   if (message.type === 'GET_CONSOLE_LOGS') {
-    // Return only logs from the monitored tab
-    // If no monitored tab is set, return empty array
-    if (monitoredTabId === null || monitoredTabId === undefined) {
-      sendResponse({ logs: [] });
-      return false;
+    // Filter logs by monitored tab if specified
+    let logsToReturn = capturedConsoleLogs;
+    if (monitoredTabId !== null) {
+      logsToReturn = capturedConsoleLogs.filter(log => log.tabId === monitoredTabId);
     }
-    const monitoredTabLogs = capturedConsoleLogs.filter(log => log.tabId === monitoredTabId);
-    sendResponse({ logs: monitoredTabLogs });
+    
+    sendResponse({ logs: logsToReturn });
+    return false;
+  }
+  
+  if (message.type === 'CLEAR_REQUESTS') {
+    // Clear requests for the monitored tab only
+    if (monitoredTabId !== null) {
+      capturedRequests = capturedRequests.filter(req => req.tabId !== monitoredTabId);
+    } else {
+      capturedRequests = [];
+    }
+    sendResponse({ success: true });
     return false;
   }
   
   if (message.type === 'CLEAR_CONSOLE_LOGS') {
-    // Clear all console logs
-    capturedConsoleLogs = [];
-    
-    // Also clear project log file if active project exists
-    chrome.storage.local.get(['activeProjectId', 'projectLogs'], (result) => {
-      const activeProjectId = result.activeProjectId;
-      if (activeProjectId) {
-        const projectLogs = result.projectLogs || {};
-        projectLogs[activeProjectId] = [];
-        chrome.storage.local.set({ projectLogs: projectLogs });
-      }
-    });
-    
+    // Clear logs for the monitored tab only
+    if (monitoredTabId !== null) {
+      capturedConsoleLogs = capturedConsoleLogs.filter(log => log.tabId !== monitoredTabId);
+    } else {
+      capturedConsoleLogs = [];
+    }
     sendResponse({ success: true });
+    return false;
+  }
+  
+  if (message.type === 'SET_RECORDING') {
+    isRecording = message.recording;
+    sendResponse({ success: true });
+    return false;
+  }
+  
+  if (message.type === 'GET_RECORDING') {
+    sendResponse({ recording: isRecording });
+    return false;
+  }
+  
+  if (message.type === 'SET_CONSOLE_RECORDING') {
+    isConsoleRecording = message.recording;
+    // Sync with storage for console viewer
+    chrome.storage.local.set({ isConsoleRecording: isConsoleRecording });
+    sendResponse({ success: true });
+    return false;
+  }
+  
+  if (message.type === 'GET_CONSOLE_RECORDING') {
+    sendResponse({ recording: isConsoleRecording });
+    return false;
+  }
+  
+  if (message.type === 'GET_MONITORED_TAB_ID') {
+    sendResponse({ tabId: monitoredTabId });
+    return false;
+  }
+  
+  if (message.type === 'SCREENSHOT_SELECTION_COMPLETE' || message.type === 'SCREENSHOT_SELECTION_CANCELLED') {
+    // Allow these messages to pass through to side panel
+    // Return false to allow side panel to receive them
+    return false;
+  }
+  
+  if (message.type === 'CROP_COPY_SUCCESS' || message.type === 'CROP_COPY_ERROR') {
+    // Allow these messages to pass through to side panel
     return false;
   }
   
@@ -356,6 +280,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     openConsoleViewer();
     sendResponse({ success: true });
     return false;
+  }
+  
+  if (message.type === 'OPEN_MARKUP_VIEWER') {
+    // Open or focus markup viewer window
+    openMarkupViewer(message.markupId).then(() => {
+      sendResponse({ success: true });
+    }).catch((err) => {
+      console.error('[Markup Viewer] Error opening viewer:', err);
+      sendResponse({ success: false, error: err.message });
+    });
+    return true; // Keep channel open for async response
   }
   
   if (message.type === 'NOTIFY_CONSOLE_VIEWER_RECORDING') {
@@ -378,96 +313,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
     
-    // Check if tab still exists
-    chrome.tabs.get(monitoredTabId, (tab) => {
+    chrome.tabs.sendMessage(monitoredTabId, { type: 'GET_CACHE_DATA' }, (response) => {
       if (chrome.runtime.lastError) {
-        sendResponse({ error: 'Monitored tab is no longer available' });
-        return;
+        sendResponse({ error: chrome.runtime.lastError.message });
+      } else {
+        sendResponse(response || { error: 'No response' });
       }
-      
-      // Inject script to read Cache Storage API
-      chrome.scripting.executeScript({
-        target: { tabId: monitoredTabId },
-        world: 'MAIN',
-        func: async () => {
-          try {
-            if (!('caches' in window)) {
-              return { error: 'Cache API not available' };
-            }
-            
-            const cacheNames = await caches.keys();
-            const cacheData = [];
-            
-            for (const cacheName of cacheNames) {
-              const cache = await caches.open(cacheName);
-              const requests = await cache.keys();
-              const entries = [];
-              
-              // Limit to first 100 entries per cache for performance
-              const limitedRequests = requests.slice(0, 100);
-              
-              for (const request of limitedRequests) {
-                const response = await cache.match(request);
-                if (response) {
-                  let responseBody = '';
-                  const contentType = response.headers.get('content-type') || '';
-                  
-                  try {
-                    if (contentType.includes('application/json')) {
-                      responseBody = await response.clone().json();
-                    } else if (contentType.includes('text/')) {
-                      responseBody = await response.clone().text();
-                      // Limit text response preview
-                      if (responseBody.length > 500) {
-                        responseBody = responseBody.substring(0, 500) + '... (truncated)';
-                      }
-                    } else {
-                      responseBody = '[Binary or non-text response]';
-                    }
-                  } catch (e) {
-                    responseBody = '[Unable to read response body]';
-                  }
-                  
-                  const headers = {};
-                  response.headers.forEach((value, key) => {
-                    headers[key] = value;
-                  });
-                  
-                  entries.push({
-                    url: request.url,
-                    method: request.method || 'GET',
-                    response: responseBody,
-                    headers: headers,
-                    status: response.status,
-                    statusText: response.statusText
-                  });
-                }
-              }
-              
-              cacheData.push({
-                name: cacheName,
-                entries: entries,
-                totalEntries: requests.length
-              });
-            }
-            
-            return { caches: cacheData };
-          } catch (error) {
-            return { error: error.message || 'Failed to read cache data' };
-          }
-        }
-      }).then((results) => {
-        if (results && results[0] && results[0].result) {
-          sendResponse(results[0].result);
-        } else {
-          sendResponse({ error: 'Failed to execute script' });
-        }
-      }).catch((error) => {
-        sendResponse({ error: error.message || 'Failed to execute script' });
-      });
     });
-    
-    return true; // Async response
+    return true; // Keep channel open for async response
   }
   
   if (message.type === 'GET_LOCAL_STORAGE_DATA') {
@@ -477,76 +330,103 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     }
     
-    // Check if tab still exists
-    chrome.tabs.get(monitoredTabId, (tab) => {
+    chrome.tabs.sendMessage(monitoredTabId, { type: 'GET_LOCAL_STORAGE_DATA' }, (response) => {
       if (chrome.runtime.lastError) {
-        sendResponse({ error: 'Monitored tab is no longer available' });
-        return;
+        sendResponse({ error: chrome.runtime.lastError.message });
+      } else {
+        sendResponse(response || { error: 'No response' });
       }
-      
-      // Inject script to read localStorage
-      chrome.scripting.executeScript({
-        target: { tabId: monitoredTabId },
-        world: 'MAIN',
-        func: () => {
-          try {
-            const items = [];
-            for (let i = 0; i < localStorage.length; i++) {
-              const key = localStorage.key(i);
-              if (key !== null) {
-                let value = localStorage.getItem(key);
-                // Try to parse as JSON if possible
-                try {
-                  const parsed = JSON.parse(value);
-                  value = parsed;
-                } catch (e) {
-                  // Keep as string if not valid JSON
-                }
-                items.push({ key: key, value: value });
-              }
-            }
-            return { items: items };
-          } catch (error) {
-            return { error: error.message || 'Failed to read localStorage' };
-          }
-        }
-      }).then((results) => {
-        if (results && results[0] && results[0].result) {
-          sendResponse(results[0].result);
-        } else {
-          sendResponse({ error: 'Failed to execute script' });
-        }
-      }).catch((error) => {
-        sendResponse({ error: error.message || 'Failed to execute script' });
-      });
     });
-    
-    return true; // Async response
+    return true; // Keep channel open for async response
+  }
+  
+  if (message.type === 'RELOAD_TAB' || message.type === 'RELOAD_PAGE') {
+    // Reload the monitored tab
+    if (monitoredTabId !== null && monitoredTabId !== undefined) {
+      chrome.tabs.reload(monitoredTabId, { bypassCache: true });
+      sendResponse({ success: true });
+    } else {
+      sendResponse({ error: 'No monitored tab' });
+    }
+    return false;
+  }
+  
+  if (message.type === 'SET_RECORDING_STATE') {
+    isRecording = message.isRecording;
+    sendResponse({ success: true });
+    return false;
+  }
+  
+  if (message.type === 'SET_CONSOLE_RECORDING_STATE') {
+    isConsoleRecording = message.isRecording;
+    // Sync with storage for console viewer
+    chrome.storage.local.set({ isConsoleRecording: isConsoleRecording });
+    sendResponse({ success: true });
+    return false;
+  }
+  
+  if (message.type === 'GET_ACTIVE_TAB_INFO') {
+    // Get monitored tab info, or fallback to active tab
+    if (monitoredTabId !== null && monitoredTabId !== undefined) {
+      chrome.tabs.get(monitoredTabId, (tab) => {
+        if (chrome.runtime.lastError) {
+          // Monitored tab no longer exists, try active tab as fallback
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs && tabs.length > 0) {
+              const activeTab = tabs[0];
+              // Update monitoredTabId to active tab
+              monitoredTabId = activeTab.id;
+              chrome.storage.local.set({ monitoredTabId: activeTab.id });
+              sendResponse({ 
+                tabInfo: {
+                  id: activeTab.id,
+                  url: activeTab.url,
+                  title: activeTab.title,
+                  favIconUrl: activeTab.favIconUrl
+                }
+              });
+            } else {
+              sendResponse({ error: 'No active tab found' });
+            }
+          });
+        } else {
+          sendResponse({ 
+            tabInfo: {
+              id: tab.id,
+              url: tab.url,
+              title: tab.title,
+              favIconUrl: tab.favIconUrl
+            }
+          });
+        }
+      });
+    } else {
+      // No monitored tab, use active tab
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ error: chrome.runtime.lastError.message });
+        } else if (tabs && tabs.length > 0) {
+          const tab = tabs[0];
+          // Set as monitored tab
+          monitoredTabId = tab.id;
+          chrome.storage.local.set({ monitoredTabId: tab.id });
+          sendResponse({ 
+            tabInfo: {
+              id: tab.id,
+              url: tab.url,
+              title: tab.title,
+              favIconUrl: tab.favIconUrl
+            }
+          });
+        } else {
+          sendResponse({ error: 'No active tab found' });
+        }
+      });
+    }
+    return true; // Keep channel open for async response
   }
   
   return false;
-});
-
-// Set up window event listeners once
-chrome.windows.onBoundsChanged.addListener((windowId) => {
-  if (windowId === consoleViewerWindowId) {
-    chrome.windows.get(windowId, (win) => {
-      chrome.storage.local.set({
-        consoleViewerBounds: {
-          width: win.width,
-          height: win.height,
-          left: win.left,
-          top: win.top
-        }
-      });
-    });
-  }
-});
-
-chrome.windows.onRemoved.addListener((windowId) => {
-  if (windowId === consoleViewerWindowId) {
-    consoleViewerWindowId = null;
-  }
 });
 
 // Open console viewer window
@@ -576,19 +456,96 @@ async function openConsoleViewer() {
     const bounds = result.consoleViewerBounds || defaultBounds;
     
     // Create new window
+    const window = await chrome.windows.create({
+      url: chrome.runtime.getURL('console-viewer/console-viewer.html'),
+      type: 'popup',
+      width: bounds.width,
+      height: bounds.height,
+      left: bounds.left,
+      top: bounds.top
+    });
+    
+    consoleViewerWindowId = window.id;
+    
+    // Save window bounds when changed
+    chrome.windows.onBoundsChanged.addListener((changedWindowId) => {
+      if (changedWindowId === consoleViewerWindowId) {
+        chrome.windows.get(changedWindowId, (win) => {
+          if (win) {
+            chrome.storage.local.set({
+              consoleViewerBounds: {
+                width: win.width,
+                height: win.height,
+                left: win.left,
+                top: win.top
+              }
+            });
+          }
+        });
+      }
+    });
+  });
+  
+  // Clean up window ID when window is closed
+  chrome.windows.onRemoved.addListener((windowId) => {
+    if (windowId === consoleViewerWindowId) {
+      consoleViewerWindowId = null;
+    }
+    if (windowId === markupViewerWindowId) {
+      markupViewerWindowId = null;
+    }
+  });
+}
+
+// Open markup viewer window
+async function openMarkupViewer(markupId) {
+  if (!markupId) {
+    console.error('[Markup Viewer] No markup ID provided');
+    return;
+  }
+  
+  // Check if window already exists
+  if (markupViewerWindowId !== null) {
     try {
-      const window = await chrome.windows.create({
-        url: chrome.runtime.getURL('console-viewer/console-viewer.html'),
-        type: 'popup',
-        width: bounds.width,
-        height: bounds.height,
-        left: bounds.left,
-        top: bounds.top
+      const window = await chrome.windows.get(markupViewerWindowId);
+      // Window exists, focus it
+      await chrome.windows.update(markupViewerWindowId, { focused: true });
+      return;
+    } catch (e) {
+      // Window doesn't exist anymore, reset ID
+      markupViewerWindowId = null;
+    }
+  }
+  
+  // Create new window with markup ID in URL
+  const url = chrome.runtime.getURL(`markup-viewer/markup-viewer.html?id=${markupId}`);
+  
+  const window = await chrome.windows.create({
+    url: url,
+    type: 'popup',
+    width: 1000,
+    height: 700,
+    left: 100,
+    top: 100
+  });
+  
+  markupViewerWindowId = window.id;
+  
+  // Save window bounds when changed
+  chrome.windows.onBoundsChanged.addListener((changedWindowId) => {
+    if (changedWindowId === markupViewerWindowId) {
+      chrome.windows.get(changedWindowId, (win) => {
+        if (win) {
+          chrome.storage.local.set({
+            [`markupViewerBounds_${markupId}`]: {
+              width: win.width,
+              height: win.height,
+              left: win.left,
+              top: win.top
+            }
+          });
+        }
       });
-      
-      consoleViewerWindowId = window.id;
-    } catch (err) {
-      console.error('[Network Capture] Failed to open console viewer:', err);
     }
   });
 }

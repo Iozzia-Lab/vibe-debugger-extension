@@ -27,7 +27,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["content/injected.js", "content/screenshot-selector.js", "sidepanel/sidepanel.html", "sidepanel/sidepanel.css", "sidepanel/sidepanel.js", "console-viewer/console-viewer.html", "console-viewer/console-viewer.css", "console-viewer/console-viewer.js"],
+      "resources": ["content/injected.js", "content/screenshot-selector.js", "sidepanel/sidepanel.html", "sidepanel/sidepanel.css", "sidepanel/sidepanel.js", "sidepanel/fabric.min.js", "console-viewer/console-viewer.html", "console-viewer/console-viewer.css", "console-viewer/console-viewer.js", "markup-viewer/markup-viewer.html", "markup-viewer/markup-viewer.css", "markup-viewer/markup-viewer.js", "markup-viewer/fabric.min.js"],
       "matches": ["<all_urls>"]
     }
   ],

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screenshot Markup</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="markup-viewer.css">
+    <script src="fabric.min.js"></script>
+</head>
+<body>
+    <div class="markup-viewer-container">
+        <!-- Header -->
+        <div class="markup-header">
+            <h2>Screenshot Markup</h2>
+            <button class="btn-close" id="closeBtn">✕</button>
+        </div>
+        
+        <!-- Toolbar -->
+        <div class="markup-toolbar">
+            <div class="tool-group">
+                <button class="tool-btn active" id="toolSelect" title="Select/Move">
+                    <i class="fa-solid fa-hand-pointer"></i>
+                </button>
+                <button class="tool-btn" id="toolHighlighter" title="Highlighter">
+                    <i class="fa-solid fa-highlighter"></i>
+                </button>
+                <button class="tool-btn" id="toolArrow" title="Arrow">
+                    <i class="fa-solid fa-arrow-right"></i>
+                </button>
+                <button class="tool-btn" id="toolRectangle" title="Rectangle">
+                    <i class="fa-solid fa-square"></i>
+                </button>
+                <button class="tool-btn" id="toolCircle" title="Circle">
+                    <i class="fa-solid fa-circle"></i>
+                </button>
+                <button class="tool-btn" id="toolLetter" title="Letter">
+                    <i class="fa-solid fa-font"></i>
+                </button>
+            </div>
+            <div class="color-group">
+                <div class="color-picker">
+                    <div class="color-swatch active" data-color="#ff0000" style="background-color: #ff0000;" title="Red"></div>
+                    <div class="color-swatch" data-color="#0000ff" style="background-color: #0000ff;" title="Blue"></div>
+                    <div class="color-swatch" data-color="#00ff00" style="background-color: #00ff00;" title="Green"></div>
+                    <div class="color-swatch" data-color="#ffff00" style="background-color: #ffff00;" title="Yellow"></div>
+                    <div class="color-swatch" data-color="#ff8800" style="background-color: #ff8800;" title="Orange"></div>
+                    <div class="color-swatch" data-color="#8800ff" style="background-color: #8800ff;" title="Purple"></div>
+                    <div class="color-swatch" data-color="#ff00ff" style="background-color: #ff00ff;" title="Pink"></div>
+                    <div class="color-swatch" data-color="#000000" style="background-color: #000000;" title="Black"></div>
+                    <div class="color-swatch" data-color="#ffffff" style="background-color: #ffffff; border: 1px solid #ccc;" title="White"></div>
+                </div>
+            </div>
+            <div class="layer-group">
+                <button class="layer-btn" id="layerUp" title="Move Up">
+                    <i class="fa-solid fa-arrow-up"></i>
+                </button>
+                <button class="layer-btn" id="layerDown" title="Move Down">
+                    <i class="fa-solid fa-arrow-down"></i>
+                </button>
+            </div>
+            <div class="history-group">
+                <button class="history-btn" id="undoBtn" title="Undo (Ctrl+Z)" disabled>
+                    <i class="fa-solid fa-undo"></i>
+                </button>
+                <button class="history-btn" id="redoBtn" title="Redo (Ctrl+Y)" disabled>
+                    <i class="fa-solid fa-redo"></i>
+                </button>
+                <button class="history-btn" id="clearAllBtn" title="Clear All">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </div>
+            <div class="letter-controls" id="letterControls" style="display: none;">
+                <label>Letter:</label>
+                <select id="letterSelect">
+                    <option>A</option>
+                    <option>B</option>
+                    <option>C</option>
+                    <option>D</option>
+                    <option>E</option>
+                    <option>F</option>
+                    <option>G</option>
+                    <option>H</option>
+                </select>
+                <label>Size:</label>
+                <input type="range" id="letterSize" min="20" max="100" value="40">
+                <span id="letterSizeValue">40</span>
+            </div>
+        </div>
+        
+        <!-- Canvas Container -->
+        <div class="markup-canvas-container">
+            <canvas id="markupCanvas"></canvas>
+        </div>
+        
+        <!-- Footer -->
+        <div class="markup-footer">
+            <button class="btn-copy-markup" id="copyMarkupBtn">Copy to Clipboard</button>
+        </div>
+    </div>
+    
+    <script src="markup-viewer.js"></script>
+</body>
+</html>

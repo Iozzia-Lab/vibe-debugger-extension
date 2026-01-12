@@ -6,6 +6,12 @@
 (function() {
   'use strict';
   
+  // Prevent double injection
+  if (window.__NETWORK_CAPTURE_INJECTED) {
+    return;
+  }
+  window.__NETWORK_CAPTURE_INJECTED = true;
+  
   // Generate unique request ID
   let requestIdCounter = 0;
   function generateRequestId() {

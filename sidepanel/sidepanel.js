@@ -27,21 +27,11 @@ const copyDetailBtn = document.getElementById('copyDetailBtn');
 const screenshotBtn = document.getElementById('screenshotBtn');
 const cropBtn = document.getElementById('cropBtn');
 const markupBtn = document.getElementById('markupBtn');
-const markupModal = document.getElementById('markupModal');
-const closeMarkupModal = document.getElementById('closeMarkupModal');
-const markupCanvas = document.getElementById('markupCanvas');
 const undockBtn = document.getElementById('undockBtn');
 
 // Screenshot storage (in-memory)
 let lastScreenshotDataUrl = null;
 let lastMarkupData = null;
-let markupFabricCanvas = null;
-let currentTool = 'highlighter';
-let currentColor = '#ff0000';
-let currentLetter = 'A';
-let currentLetterSize = 40;
-let isDrawing = false;
-let startPoint = null;
 const projectsBtn = document.getElementById('projectsBtn');
 const projectsModal = document.getElementById('projectsModal');
 const projectsList = document.getElementById('projectsList');
@@ -79,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadActiveTabInfo();
     updateCopySelectedButton();
     updateConsoleStats();
+    updateMarkupButtonState();
     updateActiveProjectDisplay();
     updateReloadButton();
     
@@ -156,14 +147,9 @@ function setupEventListeners() {
         markupBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            openMarkupModal();
-        });
-    }
-    
-    // Close markup modal
-    if (closeMarkupModal) {
-        closeMarkupModal.addEventListener('click', () => {
-            markupModal.classList.add('hidden');
+            if (!markupBtn.disabled) {
+                openMarkupViewer();
+            }
         });
     }
     
@@ -2074,6 +2060,7 @@ function captureTabScreenshot(windowId) {
         console.log('[Screenshot] Storing screenshot data URL for markup tool');
         lastScreenshotDataUrl = dataUrl;
         lastMarkupData = null; // Clear previous markup
+        updateMarkupButtonState();
         
         // Convert data URL to Blob
         fetch(dataUrl)
@@ -2313,6 +2300,7 @@ function cropImage(dataUrl, selection, callback) {
         console.log('[Crop] Storing cropped screenshot data URL for markup tool');
         lastScreenshotDataUrl = croppedDataUrl;
         lastMarkupData = null; // Clear previous markup
+        updateMarkupButtonState();
         
         // Convert to blob and copy to clipboard
         // Use content script method since side panel may not have focus
@@ -2466,445 +2454,46 @@ function animateLoadingDots() {
 
 // ==================== MARKUP TOOL FUNCTIONS ====================
 
-// Open markup modal
-function openMarkupModal() {
-    console.log('[Markup] Opening modal, lastScreenshotDataUrl:', lastScreenshotDataUrl ? 'exists' : 'null');
+// Update markup button state based on screenshot availability
+function updateMarkupButtonState() {
+    if (!markupBtn) return;
     
+    if (lastScreenshotDataUrl) {
+        // Enable button
+        markupBtn.disabled = false;
+        markupBtn.classList.remove('outlined');
+    } else {
+        // Disable button
+        markupBtn.disabled = true;
+        markupBtn.classList.add('outlined');
+    }
+}
+
+// Open markup viewer window
+function openMarkupViewer() {
     if (!lastScreenshotDataUrl) {
         alert('No screenshot available. Please take a screenshot first.');
         return;
     }
     
-    // Check if Fabric.js is loaded
-    if (typeof fabric === 'undefined') {
-        alert('Fabric.js library is loading. Please wait a moment and try again.');
-        return;
-    }
+    // Generate unique ID for this markup session
+    const markupId = `markup_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    markupModal.classList.remove('hidden');
-    
-    // Small delay to ensure modal is visible
-    setTimeout(() => {
-        // Initialize Fabric.js canvas if not already initialized
-        if (!markupFabricCanvas && markupCanvas) {
-            initializeMarkupCanvas();
-        } else if (markupFabricCanvas) {
-            // Load screenshot and markup if exists
-            loadScreenshotToCanvas();
-        }
-    }, 100);
-}
-
-// Initialize Fabric.js canvas
-function initializeMarkupCanvas() {
-    if (!markupCanvas || typeof fabric === 'undefined') {
-        console.error('Fabric.js not loaded or canvas not found');
-        return;
-    }
-    
-    markupFabricCanvas = new fabric.Canvas('markupCanvas', {
-        selection: true,
-        preserveObjectStacking: true
-    });
-    
-    // Load screenshot
-    loadScreenshotToCanvas();
-    
-    // Initialize tools
-    initializeMarkupTools();
-    
-    // Setup canvas event handlers
-    setupCanvasHandlers();
-}
-
-// Load screenshot to canvas
-function loadScreenshotToCanvas() {
-    if (!markupFabricCanvas || !lastScreenshotDataUrl) return;
-    
-    // Clear existing objects (except background)
-    markupFabricCanvas.clear();
-    
-    fabric.Image.fromURL(lastScreenshotDataUrl, (img) => {
-        // Scale image to fit container
-        const container = document.querySelector('.markup-canvas-container');
-        const maxWidth = container ? container.clientWidth - 40 : 800;
-        const maxHeight = container ? container.clientHeight - 40 : 600;
-        
-        const scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
-        img.scale(scale);
-        
-        const canvasWidth = img.width * scale;
-        const canvasHeight = img.height * scale;
-        
-        markupFabricCanvas.setWidth(canvasWidth);
-        markupFabricCanvas.setHeight(canvasHeight);
-        markupFabricCanvas.setBackgroundImage(img, () => {
-            markupFabricCanvas.renderAll();
-            // Load markup data if exists (after background is set and rendered)
-            if (lastMarkupData) {
-                setTimeout(() => {
-                    loadMarkupData();
-                }, 100);
+    // Store screenshot and markup data in chrome.storage.local
+    chrome.storage.local.set({
+        [`markup_${markupId}_screenshot`]: lastScreenshotDataUrl,
+        [`markup_${markupId}_data`]: lastMarkupData || null
+    }, () => {
+        // Send message to background script to open window
+        chrome.runtime.sendMessage({
+            type: 'OPEN_MARKUP_VIEWER',
+            markupId: markupId
+        }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.error('[Markup] Error opening viewer:', chrome.runtime.lastError);
+                alert('Failed to open markup viewer. Please try again.');
             }
         });
     });
 }
 
-// Initialize markup tools
-function initializeMarkupTools() {
-    // Tool buttons
-    const toolHighlighter = document.getElementById('toolHighlighter');
-    const toolArrow = document.getElementById('toolArrow');
-    const toolRectangle = document.getElementById('toolRectangle');
-    const toolCircle = document.getElementById('toolCircle');
-    const toolLetter = document.getElementById('toolLetter');
-    
-    // Color swatches
-    const colorSwatches = document.querySelectorAll('.color-swatch');
-    
-    // Layer controls
-    const layerUp = document.getElementById('layerUp');
-    const layerDown = document.getElementById('layerDown');
-    
-    // Letter controls
-    const letterSelect = document.getElementById('letterSelect');
-    const letterSize = document.getElementById('letterSize');
-    const letterSizeValue = document.getElementById('letterSizeValue');
-    const letterControls = document.getElementById('letterControls');
-    
-    // Copy button
-    const copyMarkupBtn = document.getElementById('copyMarkupBtn');
-    
-    // Tool selection
-    [toolHighlighter, toolArrow, toolRectangle, toolCircle, toolLetter].forEach(btn => {
-        if (btn) {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentTool = btn.id.replace('tool', '').toLowerCase();
-                
-                // Show/hide letter controls
-                if (currentTool === 'letter') {
-                    letterControls.style.display = 'flex';
-                } else {
-                    letterControls.style.display = 'none';
-                }
-            });
-        }
-    });
-    
-    // Color selection
-    colorSwatches.forEach(swatch => {
-        swatch.addEventListener('click', () => {
-            document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
-            swatch.classList.add('active');
-            currentColor = swatch.getAttribute('data-color');
-        });
-    });
-    
-    // Letter selection
-    if (letterSelect) {
-        letterSelect.addEventListener('change', (e) => {
-            currentLetter = e.target.value;
-        });
-    }
-    
-    // Letter size
-    if (letterSize && letterSizeValue) {
-        letterSize.addEventListener('input', (e) => {
-            currentLetterSize = parseInt(e.target.value);
-            letterSizeValue.textContent = currentLetterSize;
-        });
-    }
-    
-    // Layer controls
-    if (layerUp) {
-        layerUp.addEventListener('click', () => {
-            const activeObject = markupFabricCanvas.getActiveObject();
-            if (activeObject) {
-                activeObject.bringToFront();
-                markupFabricCanvas.renderAll();
-                saveMarkupData();
-            }
-        });
-    }
-    
-    if (layerDown) {
-        layerDown.addEventListener('click', () => {
-            const activeObject = markupFabricCanvas.getActiveObject();
-            if (activeObject) {
-                activeObject.sendToBack();
-                markupFabricCanvas.renderAll();
-                saveMarkupData();
-            }
-        });
-    }
-    
-    // Copy button
-    if (copyMarkupBtn) {
-        copyMarkupBtn.addEventListener('click', copyMarkupToClipboard);
-    }
-}
-
-// Setup canvas event handlers
-function setupCanvasHandlers() {
-    if (!markupFabricCanvas) return;
-    
-    markupFabricCanvas.on('path:created', () => saveMarkupData());
-    markupFabricCanvas.on('object:added', () => saveMarkupData());
-    markupFabricCanvas.on('object:modified', () => saveMarkupData());
-    markupFabricCanvas.on('object:removed', () => saveMarkupData());
-    
-    // Mouse down - start drawing
-    markupFabricCanvas.on('mouse:down', (options) => {
-        if (currentTool === 'highlighter' || currentTool === 'rectangle' || currentTool === 'circle' || currentTool === 'arrow') {
-            isDrawing = true;
-            const pointer = markupFabricCanvas.getPointer(options.e);
-            startPoint = pointer;
-        } else if (currentTool === 'letter') {
-            const pointer = markupFabricCanvas.getPointer(options.e);
-            createLetter(pointer.x, pointer.y);
-        }
-    });
-    
-    // Mouse move - update drawing
-    markupFabricCanvas.on('mouse:move', (options) => {
-        if (!isDrawing || !startPoint) return;
-        
-        const pointer = markupFabricCanvas.getPointer(options.e);
-        
-        if (currentTool === 'highlighter') {
-            updateHighlighter(startPoint, pointer);
-        } else if (currentTool === 'rectangle') {
-            updateRectangle(startPoint, pointer);
-        } else if (currentTool === 'circle') {
-            updateCircle(startPoint, pointer);
-        } else if (currentTool === 'arrow') {
-            updateArrow(startPoint, pointer);
-        }
-    });
-    
-    // Mouse up - finish drawing
-    markupFabricCanvas.on('mouse:up', () => {
-        if (isDrawing) {
-            isDrawing = false;
-            startPoint = null;
-            saveMarkupData();
-        }
-    });
-}
-
-let currentDrawingObject = null;
-
-// Highlighter tool
-function updateHighlighter(start, end) {
-    if (currentDrawingObject) {
-        markupFabricCanvas.remove(currentDrawingObject);
-    }
-    
-    const left = Math.min(start.x, end.x);
-    const top = Math.min(start.y, end.y);
-    const width = Math.abs(end.x - start.x);
-    const height = Math.abs(end.y - start.y);
-    
-    if (width > 0 && height > 0) {
-        currentDrawingObject = new fabric.Rect({
-            left: left,
-            top: top,
-            width: width,
-            height: height,
-            fill: currentColor,
-            opacity: 0.3,
-            selectable: true,
-            strokeWidth: 0
-        });
-        
-        markupFabricCanvas.add(currentDrawingObject);
-        markupFabricCanvas.renderAll();
-    }
-}
-
-// Rectangle tool
-function updateRectangle(start, end) {
-    if (currentDrawingObject) {
-        markupFabricCanvas.remove(currentDrawingObject);
-    }
-    
-    const left = Math.min(start.x, end.x);
-    const top = Math.min(start.y, end.y);
-    const width = Math.abs(end.x - start.x);
-    const height = Math.abs(end.y - start.y);
-    
-    if (width > 0 && height > 0) {
-        currentDrawingObject = new fabric.Rect({
-            left: left,
-            top: top,
-            width: width,
-            height: height,
-            fill: 'transparent',
-            stroke: currentColor,
-            strokeWidth: 2,
-            selectable: true
-        });
-        
-        markupFabricCanvas.add(currentDrawingObject);
-        markupFabricCanvas.renderAll();
-    }
-}
-
-// Circle tool
-function updateCircle(start, end) {
-    if (currentDrawingObject) {
-        markupFabricCanvas.remove(currentDrawingObject);
-    }
-    
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const radius = Math.sqrt(dx * dx + dy * dy) / 2;
-    
-    if (radius > 0) {
-        currentDrawingObject = new fabric.Circle({
-            left: start.x,
-            top: start.y,
-            radius: radius,
-            fill: 'transparent',
-            stroke: currentColor,
-            strokeWidth: 2,
-            selectable: true,
-            originX: 'center',
-            originY: 'center'
-        });
-        
-        markupFabricCanvas.add(currentDrawingObject);
-        markupFabricCanvas.renderAll();
-    }
-}
-
-// Arrow tool
-function updateArrow(start, end) {
-    if (currentDrawingObject) {
-        markupFabricCanvas.remove(currentDrawingObject);
-    }
-    
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const length = Math.sqrt(dx * dx + dy * dy);
-    
-    if (length > 5) {
-        // Create arrow path
-        const angle = Math.atan2(dy, dx);
-        const arrowLength = 15;
-        const arrowWidth = 8;
-        
-        const arrowHeadX = end.x;
-        const arrowHeadY = end.y;
-        
-        const arrowPoint1X = arrowHeadX - arrowLength * Math.cos(angle - Math.PI / 6);
-        const arrowPoint1Y = arrowHeadY - arrowLength * Math.sin(angle - Math.PI / 6);
-        
-        const arrowPoint2X = arrowHeadX - arrowLength * Math.cos(angle + Math.PI / 6);
-        const arrowPoint2Y = arrowHeadY - arrowLength * Math.sin(angle + Math.PI / 6);
-        
-        const pathData = `M ${start.x} ${start.y} L ${end.x} ${end.y} M ${arrowPoint1X} ${arrowPoint1Y} L ${arrowHeadX} ${arrowHeadY} L ${arrowPoint2X} ${arrowPoint2Y}`;
-        
-        currentDrawingObject = new fabric.Path(pathData, {
-            stroke: currentColor,
-            strokeWidth: 2,
-            fill: '',
-            selectable: true
-        });
-        
-        markupFabricCanvas.add(currentDrawingObject);
-        markupFabricCanvas.renderAll();
-    }
-}
-
-// Letter tool
-function createLetter(x, y) {
-    const text = new fabric.Text(currentLetter, {
-        left: x,
-        top: y,
-        fontSize: currentLetterSize,
-        fill: currentColor,
-        selectable: true,
-        originX: 'center',
-        originY: 'center'
-    });
-    
-    markupFabricCanvas.add(text);
-    markupFabricCanvas.renderAll();
-    saveMarkupData();
-}
-
-// Save markup data
-function saveMarkupData() {
-    if (!markupFabricCanvas) return;
-    
-    // Save canvas state (excludes background image data)
-    const json = markupFabricCanvas.toJSON(['data']);
-    // Remove background image from saved data
-    if (json.objects) {
-        lastMarkupData = JSON.stringify(json);
-    }
-}
-
-// Load markup data
-function loadMarkupData() {
-    if (!markupFabricCanvas || !lastMarkupData) return;
-    
-    try {
-        const jsonData = JSON.parse(lastMarkupData);
-        // Load objects (background will be preserved from loadScreenshotToCanvas)
-        if (jsonData.objects && jsonData.objects.length > 0) {
-            fabric.util.enlivenObjects(jsonData.objects, (objects) => {
-                objects.forEach(obj => {
-                    markupFabricCanvas.add(obj);
-                });
-                markupFabricCanvas.renderAll();
-            });
-        }
-    } catch (err) {
-        console.error('Error loading markup data:', err);
-        lastMarkupData = null;
-    }
-}
-
-// Copy markup to clipboard
-function copyMarkupToClipboard() {
-    if (!markupFabricCanvas) {
-        alert('Canvas not initialized');
-        return;
-    }
-    
-    // Export canvas to data URL
-    const dataURL = markupFabricCanvas.toDataURL({
-        format: 'png',
-        quality: 1.0,
-        multiplier: 1
-    });
-    
-    // Convert to blob
-    fetch(dataURL)
-        .then(res => res.blob())
-        .then(blob => {
-            const item = new ClipboardItem({ 'image/png': blob });
-            return navigator.clipboard.write([item]);
-        })
-        .then(() => {
-            // Close modal
-            markupModal.classList.add('hidden');
-            
-            // Show success feedback
-            if (markupBtn) {
-                const originalHTML = markupBtn.innerHTML;
-                markupBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
-                setTimeout(() => {
-                    markupBtn.innerHTML = originalHTML;
-                }, 1500);
-            }
-        })
-        .catch(err => {
-            console.error('Failed to copy markup to clipboard:', err);
-            alert('Failed to copy markup to clipboard. Please try again.');
-        });
-}
