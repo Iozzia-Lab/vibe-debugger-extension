@@ -320,14 +320,18 @@ function renderLogList() {
                                 index < currentEndIndex;
         const isAfterStart = currentStartIndex !== null && index > currentStartIndex && currentEndIndex === null;
         
-        // Start checkbox: checked if this is start row, [-] if in range, normal otherwise
+        // Start checkbox: checked if this is start row, [-] if in range (but not checked), normal otherwise
         const startChecked = isStartRow;
-        const startShowIndicator = (isInMiddleRange || isAfterStart || (isEndRow && currentStartIndex !== null));
+        // Show [-] on start checkbox if: in middle range, after start (no end), or on end row (if start is set)
+        // But only if the checkbox is NOT checked
+        const startShowIndicator = !startChecked && (isInMiddleRange || isAfterStart || (isEndRow && currentStartIndex !== null));
         const startDisabled = currentEndIndex !== null && index > currentEndIndex;
         
-        // End checkbox: checked if this is end row, [-] if in range, normal otherwise
+        // End checkbox: checked if this is end row, [-] if in range (but not checked), normal otherwise
         const endChecked = isEndRow;
-        const endShowIndicator = (isInMiddleRange || (isStartRow && currentEndIndex !== null) || isAfterStart);
+        // Show [-] on end checkbox if: in middle range, on start row (if end is set), or after start (no end)
+        // But only if the checkbox is NOT checked
+        const endShowIndicator = !endChecked && (isInMiddleRange || (isStartRow && currentEndIndex !== null) || isAfterStart);
         const endDisabled = currentStartIndex !== null && index <= currentStartIndex;
         
         // Determine if this row is in the selected range (for visual highlighting)
@@ -338,11 +342,11 @@ function renderLogList() {
         return `
             <div class="log-item-row ${log.level} ${isInSelectedRange ? 'selected-range' : ''}">
                 <div class="trim-checkbox-container">
-                    ${startShowIndicator ? '<span class="trim-indicator">[-]</span>' : ''}
                     <input type="checkbox" 
                            class="trim-checkbox trim-start" 
                            data-index="${index}"
                            data-type="start"
+                           data-indeterminate="${startShowIndicator ? 'true' : 'false'}"
                            ${startChecked ? 'checked' : ''}
                            ${startDisabled ? 'disabled' : ''}
                            title="${startDisabled ? 'Cannot select start after end point' : 'Set as start point'}">
@@ -358,11 +362,11 @@ function renderLogList() {
                     </div>
                 </div>
                 <div class="trim-checkbox-container">
-                    ${endShowIndicator ? '<span class="trim-indicator">[-]</span>' : ''}
                     <input type="checkbox" 
                            class="trim-checkbox trim-end" 
                            data-index="${index}"
                            data-type="end"
+                           data-indeterminate="${endShowIndicator ? 'true' : 'false'}"
                            ${endChecked ? 'checked' : ''}
                            ${endDisabled ? 'disabled' : ''}
                            title="${endDisabled ? 'Cannot select end before start point' : 'Set as end point'}">
@@ -374,10 +378,26 @@ function renderLogList() {
     // Attach event listeners to checkboxes after a brief delay to ensure DOM is ready
     setTimeout(() => {
         attachTrimCheckboxListeners();
+        // Set indeterminate state on checkboxes that need it
+        setIndeterminateStates();
     }, 0);
     
     // Update counts display
     updateCountsDisplay();
+}
+
+// Set indeterminate state on checkboxes based on data-indeterminate attribute
+function setIndeterminateStates() {
+    const checkboxes = document.querySelectorAll('.trim-checkbox[data-indeterminate="true"]');
+    checkboxes.forEach(checkbox => {
+        checkbox.indeterminate = true;
+    });
+    
+    // Also ensure checkboxes that should NOT be indeterminate are reset
+    const nonIndeterminateCheckboxes = document.querySelectorAll('.trim-checkbox[data-indeterminate="false"]');
+    nonIndeterminateCheckboxes.forEach(checkbox => {
+        checkbox.indeterminate = false;
+    });
 }
 
 // Update counts display

@@ -286,18 +286,6 @@ button:active {
     position: relative;
 }
 
-.trim-indicator {
-    position: absolute;
-    top: calc(50% + 4px); /* Account for padding-top: 8px (half = 4px) */
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: #858585;
-    font-size: 12px;
-    font-weight: bold;
-    pointer-events: none; /* Allow clicks to pass through to checkbox */
-    z-index: 1;
-}
-
 .trim-checkbox {
     width: 18px;
     height: 18px;
