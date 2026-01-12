@@ -87,6 +87,14 @@ document.addEventListener('DOMContentLoaded', () => {
         updateConsoleStats();
     }, 2000);
     
+    // Listen for console viewer filter changes
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'local' && changes.consoleViewerFilter) {
+            // Console viewer filter changed, update stats
+            updateConsoleStats();
+        }
+    });
+    
     // Animate loading dots for pending requests
     setInterval(() => {
         animateLoadingDots();
@@ -1301,30 +1309,74 @@ function updateConsoleStats() {
     const includeConsole = copyConsoleCheckbox && copyConsoleCheckbox.checked;
     let consoleLines = 0;
     let consoleTokens = 0;
+    let filteredConsoleLines = 0;
+    let filteredConsoleTokens = 0;
     
     if (includeConsole) {
-        chrome.runtime.sendMessage({ type: 'GET_CONSOLE_LOGS' }, (response) => {
-            if (!chrome.runtime.lastError && response && response.logs) {
-                const consoleLogs = response.logs || [];
+        // Get console filter state from storage
+        chrome.storage.local.get(['consoleViewerFilter'], (filterResult) => {
+            chrome.runtime.sendMessage({ type: 'GET_CONSOLE_LOGS' }, (response) => {
+                const filterState = filterResult.consoleViewerFilter;
+                const hasFilter = filterState && filterState.hasFilter;
                 
-                consoleLogs.forEach(log => {
-                    const message = formatConsoleLogMessage(log);
-                    const lines = message.split('\n').length;
-                    consoleLines += lines;
+                if (!chrome.runtime.lastError && response && response.logs) {
+                    const consoleLogs = response.logs || [];
                     
-                    // Estimate tokens (rough approximation: ~4 characters per token)
-                    const text = message + (log.stack || '');
-                    consoleTokens += Math.ceil(text.length / 4);
-                });
-                
-                // Add console header
-                if (consoleLogs.length > 0) {
-                    consoleLines += 2; // "Console Logs:\n" + separator
+                    // Calculate stats for all logs
+                    consoleLogs.forEach(log => {
+                        const message = formatConsoleLogMessage(log);
+                        const lines = message.split('\n').length;
+                        consoleLines += lines;
+                        
+                        // Estimate tokens (rough approximation: ~4 characters per token)
+                        const text = message + (log.stack || '');
+                        consoleTokens += Math.ceil(text.length / 4);
+                    });
+                    
+                    // Calculate stats for filtered logs if filter is active
+                    if (hasFilter && filterState) {
+                        let filteredLogs = consoleLogs;
+                        
+                        // Apply type filter
+                        if (filterState.currentFilter !== 'all') {
+                            filteredLogs = filteredLogs.filter(log => log.level === filterState.currentFilter);
+                        }
+                        
+                        // Apply search filter
+                        if (filterState.searchValue) {
+                            filteredLogs = filteredLogs.filter(log => {
+                                const message = log.message ? log.message.toLowerCase() : '';
+                                const argsStr = JSON.stringify(log.args || []).toLowerCase();
+                                return message.includes(filterState.searchValue) || argsStr.includes(filterState.searchValue);
+                            });
+                        }
+                        
+                        filteredLogs.forEach(log => {
+                            const message = formatConsoleLogMessage(log);
+                            const lines = message.split('\n').length;
+                            filteredConsoleLines += lines;
+                            
+                            // Estimate tokens (rough approximation: ~4 characters per token)
+                            const text = message + (log.stack || '');
+                            filteredConsoleTokens += Math.ceil(text.length / 4);
+                        });
+                    }
+                    
+                    // Add console header
+                    if (consoleLogs.length > 0) {
+                        consoleLines += 2; // "Console Logs:\n" + separator
+                        if (hasFilter && filteredConsoleLines > 0) {
+                            filteredConsoleLines += 2; // "Console Logs:\n" + separator
+                        }
+                    }
                 }
-            }
-            
-            // Update display with combined stats
-            updateStatsDisplay(networkLines + consoleLines, networkTokens + consoleTokens);
+                
+                // Update display with combined stats (including filtered info)
+                // Filtered counts include selected network requests + filtered console logs
+                updateStatsDisplay(networkLines + consoleLines, networkTokens + consoleTokens, 
+                    hasFilter && filteredConsoleLines > 0 ? networkLines + filteredConsoleLines : null, 
+                    hasFilter && filteredConsoleTokens > 0 ? networkTokens + filteredConsoleTokens : null);
+            });
         });
     } else {
         // Update display with just network stats
@@ -1333,7 +1385,7 @@ function updateConsoleStats() {
 }
 
 // Update stats display
-function updateStatsDisplay(totalLines, totalTokens) {
+function updateStatsDisplay(totalLines, totalTokens, filteredConsoleLines = null, filteredConsoleTokens = null) {
     if (!consoleStats) {
         return;
     }
@@ -1345,7 +1397,25 @@ function updateStatsDisplay(totalLines, totalTokens) {
     
     // Format display
     const tokenSizeKB = (totalTokens / 1000).toFixed(1);
-    consoleStats.textContent = `${totalLines} lines, ${tokenSizeKB}K tokens`;
+    let displayText = `${totalLines} lines, ${tokenSizeKB}K tokens`;
+    
+    // Add filtered console counts if available
+    if (filteredConsoleLines !== null && filteredConsoleTokens !== null) {
+        const filteredTokenSizeKB = (filteredConsoleTokens / 1000).toFixed(1);
+        displayText += `\n(${filteredConsoleLines} lines, ${filteredTokenSizeKB}K tokens)`;
+        consoleStats.textContent = displayText;
+    } else {
+        // Check if console viewer has filters active (async check)
+        chrome.storage.local.get(['consoleViewerFilter'], (result) => {
+            const filterState = result.consoleViewerFilter;
+            // Only show "No Filters Applied" if console is included and no filter is active
+            const includeConsole = copyConsoleCheckbox && copyConsoleCheckbox.checked;
+            if (includeConsole && (!filterState || !filterState.hasFilter)) {
+                displayText += '\n(No Filters Applied)';
+            }
+            consoleStats.textContent = displayText;
+        });
+    }
 }
 
 // Copy selected requests to clipboard

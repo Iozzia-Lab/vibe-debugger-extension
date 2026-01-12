@@ -940,6 +940,8 @@ button:active {
     color: #858585;
     font-size: 11px;
     margin-left: auto;
+    white-space: pre-line;
+    line-height: 1.4;
 }
 
 /* Modal */
