@@ -9,6 +9,7 @@ let isRecording = true;
 let selectedStartIndex = null; // Index in filteredLogs array for start trim point
 let selectedEndIndex = null; // Index in filteredLogs array for end trim point
 let isUpdatingTrimSelection = false; // Flag to prevent loadLogs from interfering during trim selection
+let clickEvents = []; // Array of click event objects: { logIndex, label, timestamp, log }
 
 // DOM Elements
 const logList = document.getElementById('logList');
@@ -26,6 +27,8 @@ const refreshLocalStorageBtn = document.getElementById('refreshLocalStorageBtn')
 const totalCountSpan = document.getElementById('totalCount');
 const filteredCountSpan = document.getElementById('filteredCount');
 const trimmedCountSpan = document.getElementById('trimmedCount');
+const timelineContainer = document.getElementById('timelineContainer');
+const timelineContent = document.getElementById('timelineContent');
 
 // Current active tab
 let currentTab = 'console';
@@ -125,6 +128,8 @@ function setupMessageListener() {
                     searchInput.value = '';
                     selectedStartIndex = null;
                     selectedEndIndex = null;
+                    clickEvents = [];
+                    renderTimeline(clickEvents);
                     renderLogList();
                     updateCountsDisplay();
                 }
@@ -176,6 +181,7 @@ function loadLogs() {
                 allLogs = response.logs;
                 // Preserve trim selection when refreshing logs (filters haven't changed)
                 applyFilters(true);
+                // Timeline will be rebuilt in applyFilters -> renderLogList
                 updateCountsDisplay();
             }
         });
@@ -290,6 +296,11 @@ function filterLogs() {
 
 // Render log list
 function renderLogList() {
+    // Identify click events and render timeline BEFORE checking if logs are empty
+    // This ensures timeline updates even when filters hide all logs
+    clickEvents = identifyClickLogs(filteredLogs);
+    renderTimeline(clickEvents);
+    
     if (filteredLogs.length === 0) {
         logList.innerHTML = `
             <div class="empty-state">
@@ -380,6 +391,8 @@ function renderLogList() {
         attachTrimCheckboxListeners();
         // Set indeterminate state on checkboxes that need it
         setIndeterminateStates();
+        // Sync timeline with trim selection
+        syncTimelineWithTrimSelection();
     }, 0);
     
     // Update counts display
@@ -423,6 +436,200 @@ function updateCountsDisplay() {
     totalCountSpan.textContent = totalCount;
     filteredCountSpan.textContent = filteredCount;
     trimmedCountSpan.textContent = trimmedCount;
+}
+
+// Identify click log entries from console logs
+function identifyClickLogs(logs) {
+    const clickLogs = [];
+    
+    logs.forEach((log, index) => {
+        // Check if this is a click log entry
+        if (log.level === 'log' && log.message && log.message.startsWith('// clicked on')) {
+            // Extract button label using regex
+            const match = log.message.match(/\/\/ clicked on (.+?) \|/);
+            if (match && match[1]) {
+                const label = match[1].trim();
+                clickLogs.push({
+                    logIndex: index, // Index in filteredLogs array
+                    label: label,
+                    timestamp: log.timestamp,
+                    log: log
+                });
+            }
+        }
+    });
+    
+    return clickLogs;
+}
+
+// Render timeline with click event badges
+function renderTimeline(clickEvents) {
+    if (!timelineContent) {
+        return;
+    }
+    
+    // Store existing badge elements to preserve event listeners and state
+    const existingBadges = Array.from(timelineContent.querySelectorAll('.timeline-badge'));
+    const existingBadgeMap = new Map();
+    existingBadges.forEach(badge => {
+        const logIndex = parseInt(badge.getAttribute('data-log-index'));
+        existingBadgeMap.set(logIndex, badge);
+    });
+    
+    // Clear existing timeline content
+    timelineContent.innerHTML = '';
+    
+    if (clickEvents.length === 0) {
+        // No clicks - show empty connector
+        const connector = document.createElement('div');
+        connector.className = 'timeline-connector';
+        timelineContent.appendChild(connector);
+        return;
+    }
+    
+    // Render badges and connectors
+    clickEvents.forEach((clickEvent, clickIndex) => {
+        // Create connector before badge (except first)
+        if (clickIndex > 0) {
+            const connector = document.createElement('div');
+            connector.className = 'timeline-connector';
+            timelineContent.appendChild(connector);
+        }
+        
+        // Reuse existing badge if available, otherwise create new one
+        let badge = existingBadgeMap.get(clickEvent.logIndex);
+        if (!badge) {
+            // Create new badge element
+            badge = document.createElement('span');
+            badge.className = 'badge timeline-badge';
+            badge.textContent = clickEvent.label.length > 20 ? clickEvent.label.substring(0, 20) + '...' : clickEvent.label;
+            badge.setAttribute('data-log-index', clickEvent.logIndex);
+            badge.setAttribute('data-click-index', clickIndex);
+            badge.title = clickEvent.label; // Full label on hover
+            
+            // Add click listener
+            badge.addEventListener('click', (e) => {
+                e.stopPropagation();
+                handleTimelineBadgeClick(clickIndex, clickEvent.logIndex);
+            });
+        } else {
+            // Update existing badge attributes
+            badge.setAttribute('data-click-index', clickIndex);
+            // Update text if label changed
+            const newText = clickEvent.label.length > 20 ? clickEvent.label.substring(0, 20) + '...' : clickEvent.label;
+            if (badge.textContent !== newText) {
+                badge.textContent = newText;
+            }
+        }
+        
+        // Apply selected state styling
+        badge.classList.remove('selected-start', 'selected-end');
+        if (selectedStartIndex === clickEvent.logIndex) {
+            badge.classList.add('selected-start');
+        } else if (selectedEndIndex === clickEvent.logIndex) {
+            badge.classList.add('selected-end');
+        }
+        
+        timelineContent.appendChild(badge);
+    });
+    
+    // Add final connector after last badge
+    if (clickEvents.length > 0) {
+        const connector = document.createElement('div');
+        connector.className = 'timeline-connector';
+        timelineContent.appendChild(connector);
+    }
+}
+
+// Handle timeline badge click with smart selection logic
+function handleTimelineBadgeClick(clickIndex, logIndex) {
+    isUpdatingTrimSelection = true;
+    
+    // Get current selections
+    const currentStartIndex = selectedStartIndex;
+    const currentEndIndex = selectedEndIndex;
+    
+    // Find the click event for this log index to determine position
+    const clickedEvent = clickEvents.find(ce => ce.logIndex === logIndex);
+    if (!clickedEvent) {
+        isUpdatingTrimSelection = false;
+        return;
+    }
+    
+    // Find positions of current selections in click events array
+    const currentStartClickIndex = currentStartIndex !== null 
+        ? clickEvents.findIndex(ce => ce.logIndex === currentStartIndex)
+        : -1;
+    const currentEndClickIndex = currentEndIndex !== null
+        ? clickEvents.findIndex(ce => ce.logIndex === currentEndIndex)
+        : -1;
+    
+    // Smart selection logic
+    if (currentStartIndex === null) {
+        // No START exists - set as START
+        selectedStartIndex = logIndex;
+        selectedEndIndex = null;
+    } else if (currentEndIndex === null) {
+        // START exists but no END
+        if (logIndex > currentStartIndex) {
+            // Badge is after START - set as END
+            selectedEndIndex = logIndex;
+        } else {
+            // Badge is before START - replace START
+            selectedStartIndex = logIndex;
+        }
+    } else {
+        // Both START and END exist
+        if (clickIndex < currentEndClickIndex) {
+            // Badge is before current END - set as START (replace if needed)
+            selectedStartIndex = logIndex;
+            // Clear END if new START is after current END
+            if (logIndex > currentEndIndex) {
+                selectedEndIndex = null;
+            }
+        } else if (clickIndex > currentStartClickIndex) {
+            // Badge is after current START - set as END (replace if needed)
+            selectedEndIndex = logIndex;
+            // Clear START if new END is before current START
+            if (logIndex < currentStartIndex) {
+                selectedStartIndex = null;
+            }
+        } else {
+            // Clicking on the same badge - toggle selection
+            if (logIndex === currentStartIndex) {
+                selectedStartIndex = null;
+            } else if (logIndex === currentEndIndex) {
+                selectedEndIndex = null;
+            }
+        }
+    }
+    
+    // Re-render timeline and log list
+    renderTimeline(clickEvents);
+    renderLogList();
+    
+    // Scroll to selected log entry
+    scrollToSelectedLog(logIndex);
+    
+    // Allow loadLogs to run again after a brief delay
+    setTimeout(() => {
+        isUpdatingTrimSelection = false;
+    }, 100);
+}
+
+// Scroll to selected log entry in the list
+function scrollToSelectedLog(logIndex) {
+    // Find the log row element
+    const logRows = document.querySelectorAll('.log-item-row');
+    if (logRows[logIndex]) {
+        logRows[logIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+// Sync timeline selection with trim checkbox selection
+function syncTimelineWithTrimSelection() {
+    // Re-render timeline to reflect current trim selection
+    renderTimeline(clickEvents);
 }
 
 // Format log message
@@ -472,6 +679,8 @@ function clearAllLogs() {
             searchInput.value = '';
             selectedStartIndex = null;
             selectedEndIndex = null;
+            clickEvents = [];
+            renderTimeline(clickEvents);
             renderLogList();
             updateCountsDisplay();
         }
@@ -542,6 +751,9 @@ function attachTrimCheckboxListeners() {
             // Re-render to update disabled states, indicators, and ensure checkbox stays checked
             // The state is set, so renderLogList will recreate it as checked
             renderLogList();
+            
+            // Sync timeline with trim selection
+            syncTimelineWithTrimSelection();
             
             // Allow loadLogs to run again after a brief delay
             setTimeout(() => {

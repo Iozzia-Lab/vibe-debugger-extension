@@ -213,6 +213,74 @@ button:active {
     color: #858585;
 }
 
+/* Click Timeline */
+.timeline-container {
+    display: flex;
+    align-items: center;
+    padding: 8px 20px;
+    background: #252526;
+    border-bottom: 1px solid #3e3e42;
+    gap: 8px;
+    overflow-x: auto;
+    flex-shrink: 0;
+}
+
+.badge {
+    display: inline-block;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 4px;
+}
+
+.timeline-marker {
+    background: #3e3e42;
+    color: #858585;
+    flex-shrink: 0;
+}
+
+.timeline-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+
+.timeline-badge {
+    background: #3e3e42;
+    color: #d4d4d4;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+    flex-shrink: 0;
+}
+
+.timeline-badge:hover {
+    background: #4e4e52;
+    color: #ffffff;
+}
+
+.timeline-badge.selected-start {
+    background: #0e639c;
+    color: white;
+}
+
+.timeline-badge.selected-end {
+    background: #4caf50;
+    color: white;
+}
+
+.timeline-connector {
+    flex: 1;
+    height: 1px;
+    background: #3e3e42;
+    min-width: 20px;
+}
+
 /* Search Section */
 .search-section {
     padding: 12px 20px;
