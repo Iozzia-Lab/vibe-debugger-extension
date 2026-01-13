@@ -443,7 +443,6 @@ button:active {
 }
 
 .log-full-message,
-.log-args,
 .log-stack {
     margin-bottom: 8px;
     font-family: 'Consolas', 'Monaco', monospace;
@@ -455,11 +454,6 @@ button:active {
 
 .log-full-message {
     color: #d4d4d4;
-}
-
-.log-args {
-    color: #858585;
-    padding-left: 12px;
 }
 
 .log-stack {

@@ -356,7 +356,6 @@ function renderLogList() {
                                    (currentEndIndex === null || index <= currentEndIndex);
         
         // Format expanded details
-        const formattedArgs = formatLogArgs(log);
         const stackTrace = log.stack ? escapeHtml(log.stack) : '';
         
         return `
@@ -397,7 +396,6 @@ function renderLogList() {
                 ${isExpanded ? `
                 <div class="log-expanded-details">
                     <div class="log-full-message">${fullMessage}</div>
-                    ${formattedArgs ? `<div class="log-args">Args:\n${formattedArgs}</div>` : ''}
                     ${stackTrace ? `<div class="log-stack">Stack:\n${stackTrace}</div>` : ''}
                 </div>
                 ` : ''}
@@ -748,35 +746,6 @@ function extractStackLocation(stack) {
     return '';
 }
 
-// Format args for expanded view
-function formatLogArgs(log) {
-    if (!log.args || log.args.length === 0) {
-        return '';
-    }
-    
-    return log.args.map((arg, index) => {
-        let formatted = '';
-        if (arg === null) {
-            formatted = 'null';
-        } else if (arg === undefined) {
-            formatted = 'undefined';
-        } else if (typeof arg === 'string') {
-            formatted = escapeHtml(arg);
-        } else if (typeof arg === 'number' || typeof arg === 'boolean') {
-            formatted = String(arg);
-        } else if (typeof arg === 'object') {
-            try {
-                formatted = escapeHtml(JSON.stringify(arg, null, 2));
-            } catch (e) {
-                formatted = escapeHtml(String(arg));
-            }
-        } else {
-            formatted = escapeHtml(String(arg));
-        }
-        return `[${index}]: ${formatted}`;
-    }).join('\n');
-}
-
 // Format timestamp
 function formatTimestamp(timestamp) {
     const date = new Date(timestamp);
@@ -919,17 +888,22 @@ function copyAllLogs() {
         logsToCopy.forEach((log, index) => {
             const timestamp = formatTimestamp(log.timestamp);
             const level = log.level.toUpperCase();
-            const messagePreview = formatLogMessagePreview(log);
+            const fullMessage = formatLogMessage(log);
+            const stackTrace = log.stack ? log.stack : '';
             
-            // One representative line per log entry
-            text += `[${timestamp}] [${level}] ${messagePreview}`;
+            // Full details for each log entry
+            text += `[${timestamp}] [${level}] ${fullMessage}`;
+            
+            // Add stack trace if available
+            if (stackTrace) {
+                text += `\nStack Trace:\n${stackTrace}`;
+            }
+            
+            // Add separator between entries (except last)
             if (index < logsToCopy.length - 1) {
-                text += '\n';
+                text += '\n\n';
             }
         });
-        
-        // Add ending message
-        text += `\n\nThese are the ${logsToCopy.length} log entries initial rows - please let me know which entries you need to see the details of if any.`;
         
         // Copy to clipboard
         navigator.clipboard.writeText(text).then(() => {

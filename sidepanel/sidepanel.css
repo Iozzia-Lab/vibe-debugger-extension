@@ -557,6 +557,25 @@ button:active {
     color: #dcdcaa;
 }
 
+/* Error badge for responses containing ERROR */
+.badge {
+    display: inline-block;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 3px;
+    margin-right: 6px;
+}
+
+.error-badge {
+    background: #f48771;
+    color: #fff;
+}
+
 /* Loading dots animation */
 .loading-dots {
     display: inline-block;

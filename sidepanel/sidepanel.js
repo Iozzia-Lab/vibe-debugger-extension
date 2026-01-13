@@ -748,15 +748,38 @@ function renderRequestList() {
         const isChecked = !isPending && selectedRequestIds.has(req.id);
         const disabledAttr = isPending ? 'disabled' : '';
         
+        // Check if response contains "ERROR" in ALL CAPS (to avoid false positives)
+        let hasErrorInResponse = false;
+        if (!isPending && req.response) {
+            if (typeof req.response === 'string') {
+                hasErrorInResponse = req.response.includes('ERROR');
+            } else {
+                // For objects, stringify and check for exact "ERROR" (all caps)
+                try {
+                    const responseStr = JSON.stringify(req.response);
+                    hasErrorInResponse = responseStr.includes('ERROR');
+                } catch (e) {
+                    // If stringify fails, check toString if available
+                    hasErrorInResponse = String(req.response).includes('ERROR');
+                }
+            }
+        }
+        
         // Show loading indicator for pending requests
         const statusDisplay = isPending 
             ? '<span class="request-status-text pending"><span class="loading-dots">.</span></span>'
             : `<span class="request-status-text ${statusClass}">${req.status}</span>`;
         
+        // Add error badge if response contains ERROR
+        const errorBadge = hasErrorInResponse 
+            ? '<span class="badge error-badge">Error</span>' 
+            : '';
+        
         return `${separator}
             <div class="request-item-text" data-request-id="${req.id}" title="${escapeHtml(req.url)}">
                 <input type="checkbox" class="request-checkbox" data-request-id="${req.id}" ${isChecked ? 'checked' : ''} ${disabledAttr}>
                 <span class="request-url-text" data-request-id="${req.id}">${escapeHtml(uriPath)}</span>
+                ${errorBadge}
                 ${statusDisplay}
             </div>
         `;
