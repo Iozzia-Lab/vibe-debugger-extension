@@ -20,14 +20,13 @@
                     </svg>
                 </button>
                 <button class="btn-clear" id="clearBtn">Clear</button>
-            </div>
-            <div class="active-project-name" id="activeProjectName" style="display: none;"></div>
-            <div class="header-controls">
                 <div class="projects-button-wrapper" style="position: relative;">
-                    <button class="btn-projects" id="projectsBtn" title="Manage Projects">📁</button>
+                    <button class="btn-projects" id="projectsBtn" title="Manage Projects">
+                        <i class="fa-regular fa-folder"></i>
+                        <span class="project-name-label" id="activeProjectName">No Project</span>
+                    </button>
                     <div class="projects-dropdown hidden" id="projectsDropdown"></div>
                 </div>
-                <button class="btn-console-viewer" id="openConsoleViewerBtn" title="Open Console Viewer">Console</button>
             </div>
         </div>
         
@@ -124,7 +123,7 @@
                 <input type="checkbox" id="copyConsoleCheckbox" checked>
                 <span>Copy<br>Console</span>
             </label>
-            <div class="console-stats" id="consoleStats"></div>
+            <button class="btn-console-stats" id="consoleStats" title="Open Console Viewer"></button>
         </div>
         
         <!-- Filter and Search Container -->

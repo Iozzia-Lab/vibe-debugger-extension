@@ -26,26 +26,19 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 15px 12px 15px 12px;
+    padding: 12px 12px 8px 12px;
     background: #252526;
     border-bottom: 1px solid #3e3e42;
     flex-shrink: 0;
 }
 
-.active-project-name {
-    font-size: 13px;
-    color: #d4d4d4;
-    padding: 0 15px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 200px;
-}
+/* active-project-name is now part of btn-projects */
 
 .header-left-controls {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex: 1;
 }
 
 .header-controls {
@@ -56,6 +49,9 @@ body {
 
 .projects-button-wrapper {
     position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
 }
 
 .request-count-inline {
@@ -164,6 +160,7 @@ button:active {
     position: absolute;
     top: 100%;
     left: 0;
+    right: 0;
     margin-top: 5px;
     background: #252526;
     border: 1px solid #3e3e42;
@@ -183,6 +180,7 @@ button:active {
     padding: 10px 15px;
     cursor: pointer;
     transition: background 0.2s;
+    color: #ffffff;
 }
 
 .dropdown-item:hover {
@@ -205,12 +203,12 @@ button:active {
 
 .dropdown-edit {
     font-weight: 500;
-    color: #0e639c;
+    color: #ffffff;
 }
 
 .dropdown-edit:hover {
     background: #3e3e42;
-    color: #1177bb;
+    color: #ffffff;
 }
 
 
@@ -771,13 +769,44 @@ button:active {
 
 /* Projects Button */
 .btn-projects {
-    background: #3e3e42;
-    padding: 6px 10px;
-    font-size: 14px;
+    background: transparent;
+    border: 1px solid #555;
+    border-radius: 2px;
+    padding: 6px;
+    font-size: 13px;
+    color: #858585;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    width: 100%;
+    min-width: 0;
+    text-align: left;
 }
 
 .btn-projects:hover {
-    background: #4e4e52;
+    color: #d4d4d4;
+    border-color: #666;
+}
+
+.btn-projects i {
+    font-size: 14px;
+    color: #858585;
+}
+
+.btn-projects:hover i {
+    color: #d4d4d4;
+}
+
+.project-name-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+    text-align: left;
 }
 
 /* Console Viewer Button */
@@ -794,7 +823,7 @@ button:active {
 
 /* Tab Info Section */
 .tab-info-section {
-    padding: 10px 12px;
+    padding: 8px 12px;
     background: #252526;
     border-bottom: 1px solid #3e3e42;
     flex-shrink: 0;
@@ -842,7 +871,7 @@ button:active {
 
 /* Copy Console Section */
 .copy-console-section {
-    padding: 10px 12px 10px 12px;
+    padding: 4px 12px;
     background: #252526;
     border-bottom: 1px solid #3e3e42;
     flex-shrink: 0;
@@ -1000,13 +1029,60 @@ button:active {
     background: #45a049;
 }
 
-.console-stats {
+.btn-console-stats {
+    background: transparent;
+    border: 1px solid #555;
+    border-radius: 2px;
     color: #858585;
     font-size: 11px;
+    font-family: 'Arial Narrow', 'Helvetica Condensed', 'Roboto Condensed', 'Oswald', sans-serif;
+    font-stretch: condensed;
+    cursor: pointer;
+    padding: 4px;
+    width: 128px;
+    height: 38px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    overflow: hidden;
+    text-align: left;
+    transition: color 0.2s, border-color 0.2s;
     margin-left: auto;
-    white-space: pre-line;
     line-height: 1.4;
 }
+
+.console-stats-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.console-stats-main {
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.console-stats-filter {
+    white-space: nowrap;
+    overflow: hidden;
+    font-size: 10px;
+    color: #6a6a6a;
+}
+
+.btn-console-stats:hover {
+    color: #d4d4d4;
+    border-color: #666;
+}
+
+.btn-console-stats i {
+    font-size: 10px;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+/* console-stats is now btn-console-stats button */
 
 /* Modal */
 .modal {

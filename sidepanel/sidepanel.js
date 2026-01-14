@@ -208,6 +208,11 @@ function setupEventListeners() {
         openConsoleViewerBtn.addEventListener('click', openConsoleViewer);
     }
     
+    // Console stats button - also opens console viewer
+    if (consoleStats) {
+        consoleStats.addEventListener('click', openConsoleViewer);
+    }
+    
     // Search history dropdown
     searchInput.addEventListener('focus', showSearchHistory);
     searchInput.addEventListener('blur', (e) => {
@@ -1256,14 +1261,13 @@ function updateActiveProjectDisplay() {
             const project = projects.find(p => p.id === activeProjectId);
             if (project) {
                 activeProjectName.textContent = project.name;
-                activeProjectName.style.display = '';
                 // Load error filter strings for the active project
                 loadErrorFilterFromProject(project);
             } else {
-                activeProjectName.style.display = 'none';
+                activeProjectName.textContent = 'No Project';
             }
         } else {
-            activeProjectName.style.display = 'none';
+            activeProjectName.textContent = 'No Project';
             // Reset to default if no active project
             if (errorFilterInput) {
                 errorFilterInput.value = 'ERROR';
@@ -1521,32 +1525,43 @@ function updateStatsDisplay(totalLines, totalTokens, filteredConsoleLines = null
         return;
     }
     
-    if (totalLines === 0 && totalTokens === 0) {
-        consoleStats.textContent = '';
-        return;
-    }
-    
     // Format display
     const tokenSizeKB = (totalTokens / 1000).toFixed(1);
-    let displayText = `${totalLines} lines, ${tokenSizeKB}K tokens`;
+    let mainText = '';
+    let filterText = '';
     
-    // Add filtered console counts if available
-    if (filteredConsoleLines !== null && filteredConsoleTokens !== null) {
-        const filteredTokenSizeKB = (filteredConsoleTokens / 1000).toFixed(1);
-        displayText += `\n(${filteredConsoleLines} lines, ${filteredTokenSizeKB}K tokens)`;
-        consoleStats.textContent = displayText;
+    if (totalLines === 0 && totalTokens === 0) {
+        mainText = 'Console empty';
     } else {
-        // Check if console viewer has filters active (async check)
-        chrome.storage.local.get(['consoleViewerFilter'], (result) => {
-            const filterState = result.consoleViewerFilter;
-            // Only show "No Filters Applied" if console is included and no filter is active
-            const includeConsole = copyConsoleCheckbox && copyConsoleCheckbox.checked;
-            if (includeConsole && (!filterState || !filterState.hasFilter)) {
-                displayText += '\n(No Filters Applied)';
-            }
-            consoleStats.textContent = displayText;
-        });
+        mainText = `${totalLines} lines, ${tokenSizeKB}K tokens`;
+        
+        // Add filtered console counts if available (on second line)
+        if (filteredConsoleLines !== null && filteredConsoleTokens !== null) {
+            const filteredTokenSizeKB = (filteredConsoleTokens / 1000).toFixed(1);
+            filterText = `(${filteredConsoleLines} lines, ${filteredTokenSizeKB}K tokens)`;
+            consoleStats.innerHTML = `<i class="fa-solid fa-window-maximize"></i> <div class="console-stats-content"><span class="console-stats-main">${mainText}</span><span class="console-stats-filter">${filterText}</span></div>`;
+            return;
+        } else {
+            // Check if console viewer has filters active (async check)
+            chrome.storage.local.get(['consoleViewerFilter'], (result) => {
+                const filterState = result.consoleViewerFilter;
+                // Only show "No Filters Applied" if console is included and no filter is active (on second line)
+                const includeConsole = copyConsoleCheckbox && copyConsoleCheckbox.checked;
+                if (includeConsole && (!filterState || !filterState.hasFilter)) {
+                    filterText = '(No Filters Applied)';
+                }
+                if (filterText) {
+                    consoleStats.innerHTML = `<i class="fa-solid fa-window-maximize"></i> <div class="console-stats-content"><span class="console-stats-main">${mainText}</span><span class="console-stats-filter">${filterText}</span></div>`;
+                } else {
+                    consoleStats.innerHTML = `<i class="fa-solid fa-window-maximize"></i> <div class="console-stats-content"><span class="console-stats-main">${mainText}</span></div>`;
+                }
+            });
+            return;
+        }
     }
+    
+    // Always show icon, even for empty state
+    consoleStats.innerHTML = `<i class="fa-solid fa-window-maximize"></i> <div class="console-stats-content"><span class="console-stats-main">${mainText}</span></div>`;
 }
 
 // Copy selected requests to clipboard
