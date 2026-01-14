@@ -13,6 +13,9 @@ let currentTabId = null; // Track current tab ID
 
 // DOM Elements
 const requestList = document.getElementById('requestList');
+const networkResultsHeader = document.getElementById('networkResultsHeader');
+const networkResultsCount = document.getElementById('networkResultsCount');
+const copyUrlsBtn = document.getElementById('copyUrlsBtn');
 const listView = document.getElementById('listView');
 const detailView = document.getElementById('detailView');
 const requestCount = document.getElementById('requestCount');
@@ -64,11 +67,10 @@ let isCopyButtonGreen = false; // Track if copy button is in green (copied) stat
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    loadFilterState();
     loadRecordingState();
     loadRequests();
     setupEventListeners();
-    loadProjects();
+    loadProjects(); // This will set activeProjectId and load filter states
     loadActiveTabInfo();
     updateCopySelectedButton();
     updateConsoleStats();
@@ -115,7 +117,11 @@ function setupEventListeners() {
     }
     clearBtn.addEventListener('click', clearAllRequests);
     backBtn.addEventListener('click', showListView);
-    searchInput.addEventListener('input', filterRequests);
+    searchInput.addEventListener('input', (e) => {
+        filterRequests();
+        // Auto-save network filter strings to active project
+        saveNetworkFilterToActiveProject();
+    });
     if (errorFilterInput) {
         errorFilterInput.addEventListener('input', (e) => {
             filterRequests();
@@ -152,6 +158,11 @@ function setupEventListeners() {
     // Copy Selected button
     if (copySelectedBtn) {
         copySelectedBtn.addEventListener('click', copySelected);
+    }
+    
+    // Copy URLs button
+    if (copyUrlsBtn) {
+        copyUrlsBtn.addEventListener('click', copyUrlsList);
     }
     
     // Copy Detail button
@@ -321,6 +332,8 @@ function setupEventListeners() {
             e.stopPropagation();
             errorsFilterActive = !errorsFilterActive;
             errorsFilterBtn.classList.toggle('active', errorsFilterActive);
+            // Save errors filter state to active project
+            saveErrorsFilterStateToActiveProject();
             applyFilters();
         });
     }
@@ -537,34 +550,107 @@ function updateRequestCount() {
 function setFilter(filter) {
     currentFilter = filter;
     
-    // Save filter state to storage
-    chrome.storage.local.set({ currentFilter: filter }, () => {
-        // Update active button (excluding Errors button which is independent)
-        document.querySelectorAll('.filter-btn:not(#errorsFilterBtn)').forEach(btn => {
-            if (btn.getAttribute('data-filter') === filter) {
-                btn.classList.add('active');
-            } else {
-                btn.classList.remove('active');
+    // Save filter state to active project
+    saveFilterStateToActiveProject();
+    
+    // Update active button (excluding Errors button which is independent)
+    document.querySelectorAll('.filter-btn:not(#errorsFilterBtn)').forEach(btn => {
+        if (btn.getAttribute('data-filter') === filter) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    
+    // Re-apply filters
+    applyFilters();
+}
+
+// Load filter state from active project
+function loadFilterStateFromActiveProject() {
+    if (!activeProjectId) {
+        // Fallback to global storage if no project is active
+        chrome.storage.local.get(['currentFilter'], (result) => {
+            if (result.currentFilter) {
+                currentFilter = result.currentFilter;
+                updateFilterButtons();
             }
         });
-        
-        // Re-apply filters
-        applyFilters();
+        return;
+    }
+    
+    chrome.storage.local.get(['projects'], (result) => {
+        const projects = result.projects || [];
+        const project = projects.find(p => p.id === activeProjectId);
+        if (project) {
+            // Load current filter
+            if (project.currentFilter) {
+                currentFilter = project.currentFilter;
+            }
+            // Load errors filter active state
+            if (project.errorsFilterActive !== undefined) {
+                errorsFilterActive = project.errorsFilterActive;
+            }
+            updateFilterButtons();
+        }
     });
 }
 
-// Load filter state from storage
-function loadFilterState() {
-    chrome.storage.local.get(['currentFilter'], (result) => {
-        if (result.currentFilter) {
-            currentFilter = result.currentFilter;
-            // Update active button
-            document.querySelectorAll('.filter-btn').forEach(btn => {
-                if (btn.getAttribute('data-filter') === currentFilter) {
-                    btn.classList.add('active');
-                } else {
-                    btn.classList.remove('active');
-                }
+// Update filter button states
+function updateFilterButtons() {
+    // Update main filter buttons
+    document.querySelectorAll('.filter-btn:not(#errorsFilterBtn)').forEach(btn => {
+        if (btn.getAttribute('data-filter') === currentFilter) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    
+    // Update errors filter button
+    const errorsFilterBtn = document.getElementById('errorsFilterBtn');
+    if (errorsFilterBtn) {
+        errorsFilterBtn.classList.toggle('active', errorsFilterActive);
+    }
+}
+
+// Save filter state to active project
+function saveFilterStateToActiveProject() {
+    if (!activeProjectId) return;
+    
+    chrome.storage.local.get(['projects'], (result) => {
+        const projects = result.projects || [];
+        const projectIndex = projects.findIndex(p => p.id === activeProjectId);
+        
+        if (projectIndex !== -1) {
+            projects[projectIndex] = {
+                ...projects[projectIndex],
+                currentFilter: currentFilter
+            };
+            
+            chrome.storage.local.set({ projects: projects }, () => {
+                // Saved successfully
+            });
+        }
+    });
+}
+
+// Save errors filter state to active project
+function saveErrorsFilterStateToActiveProject() {
+    if (!activeProjectId) return;
+    
+    chrome.storage.local.get(['projects'], (result) => {
+        const projects = result.projects || [];
+        const projectIndex = projects.findIndex(p => p.id === activeProjectId);
+        
+        if (projectIndex !== -1) {
+            projects[projectIndex] = {
+                ...projects[projectIndex],
+                errorsFilterActive: errorsFilterActive
+            };
+            
+            chrome.storage.local.set({ projects: projects }, () => {
+                // Saved successfully
             });
         }
     });
@@ -605,9 +691,11 @@ function handleReloadOrLoad(shouldReload) {
             if (response && response.success) {
                 // Clear requests after reload
                 clearAllRequests();
-                // Reload error filter from active project after reload
+                // Reload filters from active project after reload
                 setTimeout(() => {
                     loadErrorFilterFromActiveProject();
+                    loadNetworkFilterFromActiveProject();
+                    loadFilterStateFromActiveProject();
                 }, 500);
             }
         });
@@ -720,22 +808,42 @@ function applyFilters() {
         });
     }
     
-    // Apply search filter - support comma-separated terms (OR logic)
+    // Apply search filter - support comma-separated terms with negative filters
     const searchValue = searchInput.value.trim();
     if (searchValue) {
         // Save to search history when filtering
         saveSearchHistory(searchValue);
         
         // Split by comma and trim each term
-        const searchTerms = searchValue.split(',').map(term => term.trim().toLowerCase()).filter(term => term.length > 0);
+        const searchTerms = searchValue.split(',').map(term => term.trim()).filter(term => term.length > 0);
         
-        if (searchTerms.length > 0) {
+        // Separate positive terms (no prefix) from negative terms (starting with -)
+        const positiveTerms = searchTerms.filter(term => !term.startsWith('-')).map(t => t.toLowerCase());
+        const negativeTerms = searchTerms.filter(term => term.startsWith('-')).map(t => t.substring(1).trim().toLowerCase()).filter(t => t.length > 0);
+        
+        // First: include if matches any positive term (OR logic)
+        // If no positive terms, start with all requests (for negative-only filtering)
+        if (positiveTerms.length > 0) {
             requests = requests.filter(req => {
                 const urlLower = req.url.toLowerCase();
-                const methodLower = req.method.toLowerCase();
+                const methodLower = req.method ? req.method.toLowerCase() : '';
                 
-                // Match if ANY term matches (OR logic)
-                return searchTerms.some(term => 
+                // Match if ANY positive term matches (OR logic)
+                return positiveTerms.some(term => 
+                    urlLower.includes(term) || 
+                    methodLower.includes(term)
+                );
+            });
+        }
+        
+        // Second: exclude if matches any negative term (applies to all requests or filtered positive matches)
+        if (negativeTerms.length > 0) {
+            requests = requests.filter(req => {
+                const urlLower = req.url.toLowerCase();
+                const methodLower = req.method ? req.method.toLowerCase() : '';
+                
+                // Exclude if matches ANY negative term
+                return !negativeTerms.some(term => 
                     urlLower.includes(term) || 
                     methodLower.includes(term)
                 );
@@ -786,6 +894,7 @@ function applyFilters() {
     renderRequestList();
     updateRequestCount();
     updateCopySelectedButton();
+    updateNetworkResultsHeader();
 }
 
 // Filter requests by search term
@@ -797,6 +906,9 @@ function filterRequests() {
 function renderRequestList() {
     // Show reload button if context is invalidated
     if (isContextInvalidated) {
+        if (networkResultsHeader) {
+            networkResultsHeader.style.display = 'none';
+        }
         requestList.innerHTML = `
             <div class="empty-state">
                 <p>Extension context invalidated</p>
@@ -811,6 +923,15 @@ function renderRequestList() {
             reloadBtn.addEventListener('click', reloadCurrentPage);
         }
         return;
+    }
+    
+    // Update network results header visibility
+    if (networkResultsHeader) {
+        if (filteredRequests.length === 0) {
+            networkResultsHeader.style.display = 'none';
+        } else {
+            networkResultsHeader.style.display = 'flex';
+        }
     }
     
     if (filteredRequests.length === 0) {
@@ -997,9 +1118,8 @@ function clearAllRequests() {
             allRequests = [];
             filteredRequests = [];
             selectedRequestIds.clear();
-            searchInput.value = '';
-            // Don't reset error filter - it's a project setting, not request data
-            // The error filter should persist and be loaded from the active project
+            // Don't reset search filter or error filter - they are project settings, not request data
+            // The filters should persist and be loaded from the active project
             updateRequestCount();
             updateCopySelectedButton();
             renderRequestList();
@@ -1263,6 +1383,8 @@ function updateActiveProjectDisplay() {
                 activeProjectName.textContent = project.name;
                 // Load error filter strings for the active project
                 loadErrorFilterFromProject(project);
+                // Load network filter strings for the active project
+                loadNetworkFilterFromProject(project);
             } else {
                 activeProjectName.textContent = 'No Project';
             }
@@ -1271,6 +1393,9 @@ function updateActiveProjectDisplay() {
             // Reset to default if no active project
             if (errorFilterInput) {
                 errorFilterInput.value = 'ERROR';
+            }
+            if (searchInput) {
+                searchInput.value = '';
             }
         }
     });
@@ -1982,6 +2107,13 @@ function loadProjects() {
         const projects = result.projects || [];
         activeProjectId = result.activeProjectId || null;
         renderProjectsList(projects);
+        // Load filter states for the active project (or fallback to global if no project)
+        loadFilterStateFromActiveProject();
+        // Also load filter input values
+        if (activeProjectId) {
+            loadErrorFilterFromActiveProject();
+            loadNetworkFilterFromActiveProject();
+        }
     });
 }
 
@@ -1991,6 +2123,8 @@ function selectProject(projectId) {
     chrome.storage.local.set({ activeProjectId: projectId }, () => {
         loadProjects(); // Refresh to show active state
         loadErrorFilterFromActiveProject(); // Load error filter strings for the selected project
+        loadNetworkFilterFromActiveProject(); // Load network filter strings for the selected project
+        loadFilterStateFromActiveProject(); // Load filter button states for the selected project
     });
 }
 
@@ -2086,6 +2220,9 @@ function saveProject(e) {
                 backendDomain: backendDomain,
                 logFilePath: logFile,
                 errorFilterStrings: 'ERROR', // Default error filter
+                networkFilterStrings: '', // Default network filter (empty)
+                currentFilter: 'all', // Default filter type
+                errorsFilterActive: false, // Default errors filter state
                 createdAt: Date.now()
             };
             projects.push(newProject);
@@ -2190,6 +2327,117 @@ function saveErrorFilterToActiveProject() {
                 // Saved successfully
             });
         }
+    });
+}
+
+// Load network filter from active project
+function loadNetworkFilterFromActiveProject() {
+    if (!activeProjectId || !searchInput) return;
+    
+    chrome.storage.local.get(['projects'], (result) => {
+        const projects = result.projects || [];
+        const project = projects.find(p => p.id === activeProjectId);
+        if (project) {
+            loadNetworkFilterFromProject(project);
+        }
+    });
+}
+
+// Load network filter from a project object
+function loadNetworkFilterFromProject(project) {
+    if (!searchInput) return;
+    
+    // Use project's network filter strings, or default to empty string
+    const networkFilter = project.networkFilterStrings || '';
+    searchInput.value = networkFilter;
+}
+
+// Save network filter strings to active project
+function saveNetworkFilterToActiveProject() {
+    if (!activeProjectId || !searchInput) return;
+    
+    const networkFilterValue = searchInput.value.trim();
+    
+    chrome.storage.local.get(['projects'], (result) => {
+        const projects = result.projects || [];
+        const projectIndex = projects.findIndex(p => p.id === activeProjectId);
+        
+        if (projectIndex !== -1) {
+            projects[projectIndex] = {
+                ...projects[projectIndex],
+                networkFilterStrings: networkFilterValue
+            };
+            
+            chrome.storage.local.set({ projects: projects }, () => {
+                // Saved successfully
+            });
+        }
+    });
+}
+
+// Update network results header (count display)
+function updateNetworkResultsHeader() {
+    if (!networkResultsCount) return;
+    
+    const count = filteredRequests.length;
+    
+    // Build filter notation with actual filter strings
+    const filterParts = [];
+    if (currentFilter !== 'all') {
+        filterParts.push(currentFilter.toUpperCase());
+    }
+    if (errorsFilterActive && errorFilterInput && errorFilterInput.value.trim()) {
+        const errorFilterStr = errorFilterInput.value.trim();
+        filterParts.push(`Errors: ${errorFilterStr}`);
+    }
+    if (searchInput && searchInput.value.trim()) {
+        const searchStr = searchInput.value.trim();
+        filterParts.push(searchStr);
+    }
+    
+    let filterNotation = '';
+    if (filterParts.length > 0) {
+        filterNotation = ` [${filterParts.join(', ')}]`;
+    }
+    
+    networkResultsCount.textContent = `${count} ${count === 1 ? 'result' : 'results'}${filterNotation}`;
+}
+
+// Copy list of URLs to clipboard
+function copyUrlsList() {
+    if (filteredRequests.length === 0) {
+        return;
+    }
+    
+    // Format: URL | Timestamp | Method | Status | Initiator
+    // Calculate timing relative to first request
+    const sortedRequests = [...filteredRequests].sort((a, b) => a.timestamp - b.timestamp);
+    const firstTimestamp = sortedRequests[0].timestamp;
+    
+    const urlsText = sortedRequests.map(req => {
+        const isPending = req.pending === true || req.status === null || req.status === undefined;
+        const timing = req.timestamp - firstTimestamp;
+        const timingMs = timing > 0 ? `+${timing}ms` : '0ms';
+        const method = req.method || 'GET';
+        const status = isPending ? 'Pending' : `${req.status} ${req.statusText || ''}`.trim();
+        const initiator = req.initiator || 'Unknown';
+        
+        return `${req.url} | ${timingMs} | ${method} | ${status} | ${initiator}`;
+    }).join('\n');
+    
+    navigator.clipboard.writeText(urlsText).then(() => {
+        // Show feedback
+        if (copyUrlsBtn) {
+            const originalText = copyUrlsBtn.textContent;
+            copyUrlsBtn.textContent = 'Copied!';
+            copyUrlsBtn.style.background = '#45a049';
+            setTimeout(() => {
+                copyUrlsBtn.textContent = originalText;
+                copyUrlsBtn.style.background = '';
+            }, 2000);
+        }
+    }).catch(err => {
+        console.error('Failed to copy URLs:', err);
     });
 }
 

@@ -233,6 +233,88 @@
   const originalFetch = window.fetch;
   const OriginalXHR = window.XMLHttpRequest;
   
+  // Helper function to get initiator info from stack trace
+  function getInitiatorInfo() {
+    try {
+      const stack = new Error().stack;
+      if (!stack) return 'Unknown';
+      
+      // Parse stack trace to find the first non-extension file
+      const stackLines = stack.split('\n');
+      // Skip first line (Error message) and second line (this function)
+      // Look for the first line that's not from our extension code
+      for (let i = 2; i < stackLines.length; i++) {
+        const line = stackLines[i].trim();
+        // Skip extension/internal Chrome code
+        if (line && 
+            !line.includes('injected.js') && 
+            !line.includes('content-script.js') &&
+            !line.includes('chrome-extension://') &&
+            !line.includes('at wrappedFetch') &&
+            !line.includes('at wrappedXMLHttpRequest') &&
+            !line.includes('at XMLHttpRequest')) {
+          
+          // Try to match: "at functionName (file:line:col)" format
+          // Example: "at loadData (http://example.com/app.js:123:45)"
+          let match = line.match(/at\s+([^\s(]+)\s+\(([^)]+)\)/);
+          if (match) {
+            const functionName = match[1];
+            const location = match[2];
+            
+            // Parse location: "file:line:col" or just "file"
+            const locationMatch = location.match(/^(.+?):(\d+):(\d+)$/);
+            if (locationMatch) {
+              const filePath = locationMatch[1];
+              const lineNum = locationMatch[2];
+              
+              // Extract filename from path (handle both / and \)
+              let fileName = filePath.split('/').pop().split('\\').pop();
+              // Remove query strings and protocol
+              fileName = fileName.split('?')[0].replace(/^https?:\/\//, '');
+              
+              // Return function name and file if available, otherwise just file:line
+              if (functionName && functionName !== 'anonymous' && functionName !== '<anonymous>' && !functionName.match(/^\d+$/)) {
+                return `${functionName} (${fileName}:${lineNum})`;
+              } else {
+                return `${fileName}:${lineNum}`;
+              }
+            } else {
+              // Location doesn't have line numbers, just return function name
+              if (functionName && functionName !== 'anonymous' && functionName !== '<anonymous>' && !functionName.match(/^\d+$/)) {
+                return functionName;
+              }
+            }
+          }
+          
+          // Try to match: "at file:line:col" format (no function name)
+          // File path must contain at least one letter, dot, slash, or other non-digit character
+          // This prevents matching pure numbers like "111:305"
+          match = line.match(/at\s+([^:\s]+):(\d+):(\d+)/);
+          if (match) {
+            const filePath = match[1];
+            const lineNum = match[2];
+            // Skip if filePath is just numbers (this would be a minified function name, not a file)
+            // Valid file paths should have at least one letter, dot, slash, or special character
+            if (filePath.match(/[a-zA-Z\.\/\\\?]/) || filePath.includes('http') || filePath.includes('file')) {
+              let fileName = filePath.split('/').pop().split('\\').pop();
+              fileName = fileName.split('?')[0].replace(/^https?:\/\//, '');
+              return `${fileName}:${lineNum}`;
+            }
+          }
+          
+          // Try to match: "at functionName" format (no file info)
+          match = line.match(/^at\s+([^\s(]+)$/);
+          if (match && match[1] !== 'Error' && !match[1].match(/^\d+$/)) {
+            return match[1];
+          }
+        }
+      }
+      return 'Unknown';
+    } catch (e) {
+      return 'Unknown';
+    }
+  }
+
   // Wrapped fetch function (only used when monitoring is active)
   function wrappedFetch() {
     const args = Array.prototype.slice.call(arguments);
@@ -263,6 +345,7 @@
     }
     
     const timestamp = Date.now();
+    const initiator = getInitiatorInfo();
     
     // Send pending request immediately
     sendToContentScript({
@@ -276,7 +359,8 @@
       requestHeaders: requestHeaders,
       responseHeaders: {},
       timestamp: timestamp,
-      pending: true
+      pending: true,
+      initiator: initiator
     });
     
     // Execute original fetch
@@ -321,7 +405,8 @@
             requestHeaders: requestHeaders,
             responseHeaders: responseHeaders,
             timestamp: timestamp,
-            pending: false
+            pending: false,
+            initiator: initiator
           });
         }).catch(function() {
           // If we can't read response, still send request info (update pending)
@@ -336,7 +421,8 @@
             requestHeaders: requestHeaders,
             responseHeaders: {},
             timestamp: timestamp,
-            pending: false
+            pending: false,
+            initiator: initiator
           });
         });
         
@@ -354,7 +440,8 @@
           statusText: 'Error',
           requestHeaders: requestHeaders,
           responseHeaders: {},
-          timestamp: timestamp
+          timestamp: timestamp,
+          initiator: initiator
         });
         
         throw error;
@@ -365,6 +452,7 @@
   function wrappedXMLHttpRequest() {
     const xhr = new OriginalXHR();
     const requestId = generateRequestId();
+    const initiator = getInitiatorInfo();
     const requestData = {
       id: requestId,
       url: '',
@@ -372,7 +460,8 @@
       payload: null,
       requestHeaders: {},
       timestamp: Date.now(),
-      excluded: false // Flag to track if this request should be excluded
+      excluded: false, // Flag to track if this request should be excluded
+      initiator: initiator
     };
     
     const originalOpen = xhr.open;
@@ -436,7 +525,8 @@
         requestHeaders: requestData.requestHeaders,
         responseHeaders: {},
         timestamp: requestData.timestamp,
-        pending: true
+        pending: true,
+        initiator: requestData.initiator
       });
       
       // Capture response when ready
@@ -486,7 +576,8 @@
             requestHeaders: requestData.requestHeaders,
             responseHeaders: responseHeaders,
             timestamp: requestData.timestamp,
-            pending: false
+            pending: false,
+            initiator: requestData.initiator
           });
         }
         
@@ -513,7 +604,8 @@
             requestHeaders: requestData.requestHeaders,
             responseHeaders: {},
             timestamp: requestData.timestamp,
-            pending: false
+            pending: false,
+            initiator: requestData.initiator
           });
           originalOnError.apply(this, arguments);
         };
@@ -531,7 +623,8 @@
             requestHeaders: requestData.requestHeaders,
             responseHeaders: {},
             timestamp: requestData.timestamp,
-            pending: false
+            pending: false,
+            initiator: requestData.initiator
           });
         };
       }
