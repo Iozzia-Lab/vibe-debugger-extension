@@ -1301,7 +1301,7 @@ function renderProjectsDropdown(projects) {
     
     if (projects.length === 0) {
         projectsDropdown.innerHTML = `
-            <div class="dropdown-item" style="padding: 10px 15px; color: #858585;">
+            <div class="dropdown-item" style="padding: 10px 15px; color: #ffffff;">
                 No projects yet
             </div>
             <div class="dropdown-separator"></div>
@@ -1325,10 +1325,10 @@ function renderProjectsDropdown(projects) {
             const isActive = project.id === activeProjectId;
             return `
                 <div class="dropdown-item ${isActive ? 'dropdown-item-active' : ''}" data-project-id="${project.id}" style="padding: 10px 15px; cursor: pointer;">
-                    <div style="font-weight: ${isActive ? '600' : '400'}; color: ${isActive ? '#0e639c' : '#d4d4d4'};">
+                    <div style="font-weight: ${isActive ? '600' : '400'}; color: #ffffff;">
                         ${escapeHtml(project.name)}
                     </div>
-                    <div style="font-size: 11px; color: #858585; margin-top: 2px;">
+                    <div style="font-size: 11px; color: #ffffff; margin-top: 2px;">
                         ${escapeHtml(project.frontendDomain || project.domain || '')}
                     </div>
                 </div>
@@ -1347,7 +1347,14 @@ function renderProjectsDropdown(projects) {
             item.addEventListener('click', (e) => {
                 e.stopPropagation(); // Prevent document click handler from firing
                 const projectId = e.currentTarget.getAttribute('data-project-id');
-                selectProject(projectId);
+                const isActive = projectId === activeProjectId;
+                if (isActive) {
+                    // If clicking the active/selected row, open Edit for that project
+                    editProject(projectId);
+                } else {
+                    // Otherwise, select the project
+                    selectProject(projectId);
+                }
                 projectsDropdown.classList.add('hidden');
             });
         });
