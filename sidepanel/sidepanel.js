@@ -44,7 +44,7 @@ const addProjectBtn = document.getElementById('addProjectBtn');
 const closeProjectsModal = document.getElementById('closeProjectsModal');
 const closeProjectFormModal = document.getElementById('closeProjectFormModal');
 const cancelProjectForm = document.getElementById('cancelProjectForm');
-const closePanelBtn = document.getElementById('closePanelBtn');
+// Close panel button removed
 const copySelectedBtn = document.getElementById('copySelectedBtn');
 const openConsoleViewerBtn = document.getElementById('openConsoleViewerBtn');
 const copyConsoleCheckbox = document.getElementById('copyConsoleCheckbox');
@@ -226,9 +226,7 @@ function setupEventListeners() {
     });
     
     // Close panel button - close the panel
-    if (closePanelBtn) {
-        closePanelBtn.addEventListener('click', closeSidePanel);
-    }
+    // Close panel button removed
     
     // Projects button - toggle dropdown
     if (projectsBtn) {

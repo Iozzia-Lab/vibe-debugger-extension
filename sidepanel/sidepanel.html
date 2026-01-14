@@ -12,6 +12,15 @@
     <div class="sidepanel-container">
         <!-- Header -->
         <div class="header">
+            <div class="header-left-controls">
+                <button class="btn-record" id="recordBtn" title="Toggle Recording">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
+                        <circle cx="8" cy="8" r="3" fill="currentColor"/>
+                    </svg>
+                </button>
+                <button class="btn-clear" id="clearBtn">Clear</button>
+            </div>
             <div class="active-project-name" id="activeProjectName" style="display: none;"></div>
             <div class="header-controls">
                 <div class="projects-button-wrapper" style="position: relative;">
@@ -19,20 +28,12 @@
                     <div class="projects-dropdown hidden" id="projectsDropdown"></div>
                 </div>
                 <button class="btn-console-viewer" id="openConsoleViewerBtn" title="Open Console Viewer">Console</button>
-                <button class="btn-clear" id="clearBtn">Clear</button>
-                <button class="btn-close-panel" id="closePanelBtn" title="Close Panel">✕</button>
             </div>
         </div>
         
         <!-- Tab Info Display -->
         <div class="tab-info-section" id="tabInfoSection">
             <div class="tab-info">
-                <button class="btn-record" id="recordBtn" title="Toggle Recording">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                        <circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>
-                        <circle cx="8" cy="8" r="3" fill="currentColor"/>
-                    </svg>
-                </button>
                 <button class="btn-reload" id="reloadBtn" title="Reload Tab" style="display: flex;">
                     <i class="fa-solid fa-arrow-rotate-right"></i>
                 </button>
