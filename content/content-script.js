@@ -6,7 +6,7 @@
 (function() {
   'use strict';
   
-  console.log('[Network Capture] Content script loaded');
+  // Don't log on every page load - too noisy
   
   // Listen for messages from injected page script (running in MAIN world)
   window.addEventListener('message', function(event) {
@@ -119,6 +119,53 @@
       window.postMessage({ type: 'STOP_SCREENSHOT_SELECTION' }, '*');
       sendResponse({ success: true });
     }
+    if (message.type === 'ENABLE_CONSOLE_INTERCEPTION') {
+      // Enable console interception in injected script
+      window.postMessage({ type: 'ENABLE_CONSOLE_INTERCEPTION', enabled: message.enabled !== false }, '*');
+      sendResponse({ success: true });
+    }
+    if (message.type === 'DISABLE_CONSOLE_INTERCEPTION') {
+      // Disable console interception in injected script
+      window.postMessage({ type: 'ENABLE_CONSOLE_INTERCEPTION', enabled: false }, '*');
+      sendResponse({ success: true });
+    }
     return true;
   });
+  
+  // Check monitoring state on load and periodically
+  function checkMonitoringState() {
+    try {
+      // Ask background script if this tab is monitored (safer than using chrome.tabs.query)
+      chrome.runtime.sendMessage({ type: 'IS_TAB_MONITORED' }, (response) => {
+        if (chrome.runtime.lastError) {
+          // Disable interception on error
+          window.postMessage({ 
+            type: 'ENABLE_CONSOLE_INTERCEPTION', 
+            enabled: false 
+          }, '*');
+          return;
+        }
+        
+        const isMonitored = response && response.isMonitored === true;
+        
+        // Enable/disable interception based on monitoring state
+        window.postMessage({ 
+          type: 'ENABLE_CONSOLE_INTERCEPTION', 
+          enabled: isMonitored 
+        }, '*');
+      });
+    } catch (error) {
+      // Disable interception on any error
+      window.postMessage({ 
+        type: 'ENABLE_CONSOLE_INTERCEPTION', 
+        enabled: false 
+      }, '*');
+    }
+  }
+  
+  // Check on load (after a brief delay to ensure runtime is ready)
+  setTimeout(checkMonitoringState, 100);
+  
+  // Check periodically (every 2 seconds)
+  setInterval(checkMonitoringState, 2000);
 })();

@@ -271,19 +271,23 @@ button:active {
 .filter-buttons {
     display: flex;
     gap: 8px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    align-items: center;
+    width: 100%;
 }
 
 .filter-btn {
     background: #3e3e42;
     color: #d4d4d4;
     border: 1px solid #555;
-    padding: 4px 8px;
+    padding: 4px;
     border-radius: 4px;
     font-size: 11px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .filter-btn:hover {
@@ -301,11 +305,43 @@ button:active {
     background: #1177bb;
 }
 
+#errorsFilterBtn {
+    margin-left: auto;
+}
+
+.filter-toggle-btn {
+    background: transparent;
+    color: #d4d4d4;
+    border: none;
+    padding: 4px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.filter-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.filter-toggle-btn i {
+    font-size: 10px;
+    transition: transform 0.2s;
+}
+
 /* Search Section */
 .search-section {
     display: flex;
-    gap: 15px;
+    gap: 8px;
     align-items: center;
+}
+
+.search-section.hidden {
+    display: none;
 }
 
 .search-input-wrapper {
@@ -326,6 +362,21 @@ button:active {
 .search-input:focus {
     outline: none;
     border-color: #0e639c;
+}
+
+.error-filter-input {
+    background: #8b4513;
+    border-color: #a0522d;
+    color: #fff;
+}
+
+.error-filter-input:focus {
+    border-color: #cd853f;
+    background: #a0522d;
+}
+
+.error-filter-input::placeholder {
+    color: #ffcc99;
 }
 
 .search-history-dropdown {

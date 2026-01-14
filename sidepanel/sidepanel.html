@@ -135,11 +135,18 @@
                 <button class="filter-btn" data-filter="js">JS</button>
                 <button class="filter-btn" data-filter="font">Font</button>
                 <button class="filter-btn" data-filter="img">IMG</button>
+                <button class="filter-btn" id="errorsFilterBtn" data-filter="errors">Errors</button>
+                <button class="filter-toggle-btn" id="searchToggleBtn" title="Toggle search filters">
+                    <i class="fa-solid fa-chevron-down"></i>
+                </button>
             </div>
-            <div class="search-section" id="searchSection">
+            <div class="search-section hidden" id="searchSection">
                 <div class="search-input-wrapper">
                     <input type="text" id="searchInput" placeholder="Search by URL (comma-separated)..." class="search-input">
                     <div class="search-history-dropdown hidden" id="searchHistoryDropdown"></div>
+                </div>
+                <div class="search-input-wrapper">
+                    <input type="text" id="errorFilterInput" placeholder="Error filter (comma-separated)..." class="search-input error-filter-input" value="ERROR">
                 </div>
             </div>
         </div>

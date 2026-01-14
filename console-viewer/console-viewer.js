@@ -28,6 +28,10 @@ const refreshLocalStorageBtn = document.getElementById('refreshLocalStorageBtn')
 const totalCountSpan = document.getElementById('totalCount');
 const filteredCountSpan = document.getElementById('filteredCount');
 const trimmedCountSpan = document.getElementById('trimmedCount');
+const filteredLinesSpan = document.getElementById('filteredLines');
+const filteredTokensSpan = document.getElementById('filteredTokens');
+const trimmedLinesSpan = document.getElementById('trimmedLines');
+const trimmedTokensSpan = document.getElementById('trimmedTokens');
 const timelineContainer = document.getElementById('timelineContainer');
 const timelineContent = document.getElementById('timelineContent');
 
@@ -158,6 +162,11 @@ function loadLogs() {
         return;
     }
     
+    // Skip if user is actively updating trim selection
+    if (isUpdatingTrimSelection) {
+        return;
+    }
+    
     // Check for clear flag
     chrome.storage.local.get(['consoleViewerClearFlag'], (result) => {
         const currentClearFlag = result.consoleViewerClearFlag || null;
@@ -270,8 +279,8 @@ function applyFilters(preserveTrimSelection = false) {
             selectedEndIndex = null;
         }
         
-        // Validate: if start >= end after restoration, clear end
-        if (selectedStartIndex !== null && selectedEndIndex !== null && selectedStartIndex >= selectedEndIndex) {
+        // Validate: if start > end after restoration, clear end (allow start == end for single row selection)
+        if (selectedStartIndex !== null && selectedEndIndex !== null && selectedStartIndex > selectedEndIndex) {
             selectedEndIndex = null;
         }
     }
@@ -348,7 +357,7 @@ function renderLogList() {
         // Show [-] on end checkbox if: in middle range, on start row (if end is set), or after start (no end)
         // But only if the checkbox is NOT checked
         const endShowIndicator = !endChecked && (isInMiddleRange || (isStartRow && currentEndIndex !== null) || isAfterStart);
-        const endDisabled = currentStartIndex !== null && index <= currentStartIndex;
+        const endDisabled = currentStartIndex !== null && index < currentStartIndex;
         
         // Determine if this row is in the selected range (for visual highlighting)
         const isInSelectedRange = currentStartIndex !== null && 
@@ -391,7 +400,7 @@ function renderLogList() {
                            data-indeterminate="${endShowIndicator ? 'true' : 'false'}"
                            ${endChecked ? 'checked' : ''}
                            ${endDisabled ? 'disabled' : ''}
-                           title="${endDisabled ? 'Cannot select end before start point' : 'Set as end point'}">
+                           title="${endDisabled ? 'Cannot select end before start point' : 'Set as end point (can be same as start)'}">
                 </div>
                 ${isExpanded ? `
                 <div class="log-expanded-details">
@@ -477,20 +486,64 @@ function updateCountsDisplay() {
     const totalCount = allLogs.length;
     const filteredCount = filteredLogs.length;
     
+    // Calculate trimmed selection (what would actually be copied)
+    let trimmedLogs = [];
     let trimmedCount = 0;
     if (selectedStartIndex !== null) {
         if (selectedEndIndex !== null) {
             // Both start and end selected
             trimmedCount = selectedEndIndex - selectedStartIndex + 1;
+            trimmedLogs = filteredLogs.slice(selectedStartIndex, selectedEndIndex + 1);
         } else {
             // Start selected but no end = from start to end of filtered logs
             trimmedCount = filteredCount - selectedStartIndex;
+            trimmedLogs = filteredLogs.slice(selectedStartIndex);
         }
+    } else {
+        // No trim selection, trimmed = filtered
+        trimmedLogs = filteredLogs;
+        trimmedCount = filteredCount;
     }
     
+    // Calculate lines and tokens for filtered logs
+    let filteredLines = 0;
+    let filteredTokens = 0;
+    filteredLogs.forEach(log => {
+        const fullMessage = formatLogMessage(log);
+        const stackTrace = log.stack ? log.stack : '';
+        const text = `[${formatTimestamp(log.timestamp)}] [${log.level.toUpperCase()}] ${fullMessage}${stackTrace ? `\nStack Trace:\n${stackTrace}` : ''}`;
+        filteredLines += text.split('\n').length;
+        filteredTokens += Math.ceil(text.length / 4);
+    });
+    
+    // Calculate lines and tokens for trimmed logs (what would be copied)
+    let trimmedLines = 0;
+    let trimmedTokens = 0;
+    trimmedLogs.forEach((log, index) => {
+        const fullMessage = formatLogMessage(log);
+        const stackTrace = log.stack ? log.stack : '';
+        let text = `[${formatTimestamp(log.timestamp)}] [${log.level.toUpperCase()}] ${fullMessage}`;
+        if (stackTrace) {
+            text += `\nStack Trace:\n${stackTrace}`;
+        }
+        // Add separator between entries (except last)
+        if (index < trimmedLogs.length - 1) {
+            text += '\n\n';
+        }
+        trimmedLines += text.split('\n').length;
+        trimmedTokens += Math.ceil(text.length / 4);
+    });
+    
+    // Update display
     totalCountSpan.textContent = totalCount;
     filteredCountSpan.textContent = filteredCount;
     trimmedCountSpan.textContent = trimmedCount;
+    
+    // Update lines and tokens
+    if (filteredLinesSpan) filteredLinesSpan.textContent = filteredLines;
+    if (filteredTokensSpan) filteredTokensSpan.textContent = (filteredTokens / 1000).toFixed(1);
+    if (trimmedLinesSpan) trimmedLinesSpan.textContent = trimmedLines;
+    if (trimmedTokensSpan) trimmedTokensSpan.textContent = (trimmedTokens / 1000).toFixed(1);
 }
 
 // Identify click log entries from console logs
@@ -803,8 +856,8 @@ function attachTrimCheckboxListeners() {
                 // Set start index (only one can be selected)
                 selectedStartIndex = index;
                 
-                // If end is before or equal to start, clear end selection
-                if (selectedEndIndex !== null && selectedEndIndex <= index) {
+                // If end is before start, clear end selection (allow end == start for single row)
+                if (selectedEndIndex !== null && selectedEndIndex < index) {
                     selectedEndIndex = null;
                 }
             } else {
@@ -816,10 +869,10 @@ function attachTrimCheckboxListeners() {
             // The state is set, so renderLogList will recreate it as checked
             renderLogList();
             
-            // Allow loadLogs to run again after a brief delay
+            // Allow loadLogs to run again after a delay (longer to prevent flickering)
             setTimeout(() => {
                 isUpdatingTrimSelection = false;
-            }, 100);
+            }, 300);
         });
     });
     
@@ -831,8 +884,8 @@ function attachTrimCheckboxListeners() {
             const index = parseInt(e.target.getAttribute('data-index'));
             
             if (e.target.checked) {
-                // Validate: end must be after start
-                if (selectedStartIndex !== null && index <= selectedStartIndex) {
+                // Validate: end must be at or after start (allows same row)
+                if (selectedStartIndex !== null && index < selectedStartIndex) {
                     // Don't allow this selection - revert checkbox immediately
                     e.target.checked = false;
                     isUpdatingTrimSelection = false;
@@ -854,10 +907,10 @@ function attachTrimCheckboxListeners() {
             // Sync timeline with trim selection
             syncTimelineWithTrimSelection();
             
-            // Allow loadLogs to run again after a brief delay
+            // Allow loadLogs to run again after a delay (longer to prevent flickering)
             setTimeout(() => {
                 isUpdatingTrimSelection = false;
-            }, 100);
+            }, 300);
         });
     });
 }

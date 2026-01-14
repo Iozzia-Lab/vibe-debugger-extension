@@ -6,6 +6,7 @@ let allRequests = [];
 let filteredRequests = [];
 let currentDetailRequest = null;
 let currentFilter = 'all';
+let errorsFilterActive = false; // Independent error filter toggle
 let isContextInvalidated = false;
 let selectedRequestIds = new Set(); // Track selected request IDs
 let currentTabId = null; // Track current tab ID
@@ -16,6 +17,7 @@ const listView = document.getElementById('listView');
 const detailView = document.getElementById('detailView');
 const requestCount = document.getElementById('requestCount');
 const searchInput = document.getElementById('searchInput');
+const errorFilterInput = document.getElementById('errorFilterInput');
 const searchHistoryDropdown = document.getElementById('searchHistoryDropdown');
 const recordBtn = document.getElementById('recordBtn');
 const reloadBtn = document.getElementById('reloadBtn');
@@ -23,6 +25,7 @@ const clearBtn = document.getElementById('clearBtn');
 const backBtn = document.getElementById('backBtn');
 const showHeadersDetailCheckbox = document.getElementById('showHeadersDetail');
 const searchSection = document.getElementById('searchSection');
+let searchSectionExpanded = false; // Track toggle state - default collapsed
 const copyDetailBtn = document.getElementById('copyDetailBtn');
 const screenshotBtn = document.getElementById('screenshotBtn');
 const cropBtn = document.getElementById('cropBtn');
@@ -113,6 +116,38 @@ function setupEventListeners() {
     clearBtn.addEventListener('click', clearAllRequests);
     backBtn.addEventListener('click', showListView);
     searchInput.addEventListener('input', filterRequests);
+    if (errorFilterInput) {
+        errorFilterInput.addEventListener('input', (e) => {
+            filterRequests();
+            // Auto-save error filter strings to active project
+            saveErrorFilterToActiveProject();
+        });
+    }
+    
+    // Search toggle button
+    const searchToggleBtn = document.getElementById('searchToggleBtn');
+    if (searchToggleBtn && searchSection) {
+        searchToggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            searchSectionExpanded = !searchSectionExpanded;
+            if (searchSectionExpanded) {
+                searchSection.classList.remove('hidden');
+                const icon = searchToggleBtn.querySelector('i');
+                if (icon) {
+                    icon.classList.remove('fa-chevron-down');
+                    icon.classList.add('fa-chevron-up');
+                }
+            } else {
+                searchSection.classList.add('hidden');
+                const icon = searchToggleBtn.querySelector('i');
+                if (icon) {
+                    icon.classList.remove('fa-chevron-up');
+                    icon.classList.add('fa-chevron-down');
+                }
+            }
+        });
+    }
     
     // Copy Selected button
     if (copySelectedBtn) {
@@ -268,13 +303,24 @@ function setupEventListeners() {
         projectForm.addEventListener('submit', saveProject);
     }
     
-    // Filter buttons
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    // Filter buttons (excluding Errors button which is handled separately)
+    document.querySelectorAll('.filter-btn:not(#errorsFilterBtn)').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const filter = e.target.getAttribute('data-filter');
             setFilter(filter);
         });
     });
+    
+    // Errors filter button (independent toggle)
+    const errorsFilterBtn = document.getElementById('errorsFilterBtn');
+    if (errorsFilterBtn) {
+        errorsFilterBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            errorsFilterActive = !errorsFilterActive;
+            errorsFilterBtn.classList.toggle('active', errorsFilterActive);
+            applyFilters();
+        });
+    }
     
     if (showHeadersDetailCheckbox) {
         showHeadersDetailCheckbox.addEventListener('change', () => {
@@ -490,8 +536,8 @@ function setFilter(filter) {
     
     // Save filter state to storage
     chrome.storage.local.set({ currentFilter: filter }, () => {
-        // Update active button
-        document.querySelectorAll('.filter-btn').forEach(btn => {
+        // Update active button (excluding Errors button which is independent)
+        document.querySelectorAll('.filter-btn:not(#errorsFilterBtn)').forEach(btn => {
             if (btn.getAttribute('data-filter') === filter) {
                 btn.classList.add('active');
             } else {
@@ -556,6 +602,10 @@ function handleReloadOrLoad(shouldReload) {
             if (response && response.success) {
                 // Clear requests after reload
                 clearAllRequests();
+                // Reload error filter from active project after reload
+                setTimeout(() => {
+                    loadErrorFilterFromActiveProject();
+                }, 500);
             }
         });
     } else {
@@ -690,6 +740,42 @@ function applyFilters() {
         }
     }
     
+    // Apply errors filter (independent toggle - works with other filters)
+    if (errorsFilterActive) {
+        requests = requests.filter(req => {
+            const isPending = req.pending === true || req.status === null || req.status === undefined;
+            if (isPending || !req.response || !errorFilterInput) {
+                return false;
+            }
+            
+            const errorFilterValue = errorFilterInput.value.trim();
+            if (!errorFilterValue) {
+                return false;
+            }
+            
+            // Parse comma-separated error strings
+            const errorStrings = errorFilterValue.split(',').map(s => s.trim()).filter(s => s.length > 0);
+            if (errorStrings.length === 0) {
+                return false;
+            }
+            
+            // Check if response contains any error string
+            let responseStr = '';
+            if (typeof req.response === 'string') {
+                responseStr = req.response;
+            } else {
+                try {
+                    responseStr = JSON.stringify(req.response);
+                } catch (e) {
+                    responseStr = String(req.response);
+                }
+            }
+            
+            // Return true if any error string matches
+            return errorStrings.some(errorStr => responseStr.includes(errorStr));
+        });
+    }
+    
     filteredRequests = requests;
     // Remove selections that are no longer in filtered list
     const filteredIds = new Set(filteredRequests.map(r => r.id));
@@ -748,19 +834,30 @@ function renderRequestList() {
         const isChecked = !isPending && selectedRequestIds.has(req.id);
         const disabledAttr = isPending ? 'disabled' : '';
         
-        // Check if response contains "ERROR" in ALL CAPS (to avoid false positives)
+        // Check if response contains any of the error filter strings (comma-separated)
         let hasErrorInResponse = false;
-        if (!isPending && req.response) {
-            if (typeof req.response === 'string') {
-                hasErrorInResponse = req.response.includes('ERROR');
-            } else {
-                // For objects, stringify and check for exact "ERROR" (all caps)
-                try {
-                    const responseStr = JSON.stringify(req.response);
-                    hasErrorInResponse = responseStr.includes('ERROR');
-                } catch (e) {
-                    // If stringify fails, check toString if available
-                    hasErrorInResponse = String(req.response).includes('ERROR');
+        if (!isPending && req.response && errorFilterInput) {
+            const errorFilterValue = errorFilterInput.value.trim();
+            if (errorFilterValue) {
+                // Parse comma-separated error strings
+                const errorStrings = errorFilterValue.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                
+                if (errorStrings.length > 0) {
+                    let responseStr = '';
+                    if (typeof req.response === 'string') {
+                        responseStr = req.response;
+                    } else {
+                        // For objects, stringify and check
+                        try {
+                            responseStr = JSON.stringify(req.response);
+                        } catch (e) {
+                            // If stringify fails, check toString if available
+                            responseStr = String(req.response);
+                        }
+                    }
+                    
+                    // Check if any error string matches in the response
+                    hasErrorInResponse = errorStrings.some(errorStr => responseStr.includes(errorStr));
                 }
             }
         }
@@ -881,7 +978,12 @@ function toggleHeaders() {
 function showListView() {
     listView.classList.remove('hidden');
     detailView.classList.add('hidden');
-    searchSection.classList.remove('hidden');
+    // Respect toggle state - only show if expanded
+    if (searchSectionExpanded) {
+        searchSection.classList.remove('hidden');
+    } else {
+        searchSection.classList.add('hidden');
+    }
     currentDetailRequest = null;
 }
 
@@ -893,6 +995,8 @@ function clearAllRequests() {
             filteredRequests = [];
             selectedRequestIds.clear();
             searchInput.value = '';
+            // Don't reset error filter - it's a project setting, not request data
+            // The error filter should persist and be loaded from the active project
             updateRequestCount();
             updateCopySelectedButton();
             renderRequestList();
@@ -1155,11 +1259,17 @@ function updateActiveProjectDisplay() {
             if (project) {
                 activeProjectName.textContent = project.name;
                 activeProjectName.style.display = '';
+                // Load error filter strings for the active project
+                loadErrorFilterFromProject(project);
             } else {
                 activeProjectName.style.display = 'none';
             }
         } else {
             activeProjectName.style.display = 'none';
+            // Reset to default if no active project
+            if (errorFilterInput) {
+                errorFilterInput.value = 'ERROR';
+            }
         }
     });
 }
@@ -1860,6 +1970,7 @@ function selectProject(projectId) {
     activeProjectId = projectId;
     chrome.storage.local.set({ activeProjectId: projectId }, () => {
         loadProjects(); // Refresh to show active state
+        loadErrorFilterFromActiveProject(); // Load error filter strings for the selected project
     });
 }
 
@@ -1954,6 +2065,7 @@ function saveProject(e) {
                 frontendDomain: frontendDomain,
                 backendDomain: backendDomain,
                 logFilePath: logFile,
+                errorFilterStrings: 'ERROR', // Default error filter
                 createdAt: Date.now()
             };
             projects.push(newProject);
@@ -2009,10 +2121,55 @@ function deleteProject(projectId) {
             activeProjectId: newActiveProjectId
         }, () => {
             activeProjectId = newActiveProjectId;
-            loadProjects();
-            updateActiveProjectDisplay();
+    loadProjects();
+    updateActiveProjectDisplay(); // This will also load error filter strings
             updateReloadButton();
         });
+    });
+}
+
+// Load error filter strings from active project
+function loadErrorFilterFromActiveProject() {
+    if (!activeProjectId || !errorFilterInput) return;
+    
+    chrome.storage.local.get(['projects'], (result) => {
+        const projects = result.projects || [];
+        const project = projects.find(p => p.id === activeProjectId);
+        if (project) {
+            loadErrorFilterFromProject(project);
+        }
+    });
+}
+
+// Load error filter strings from a project object
+function loadErrorFilterFromProject(project) {
+    if (!errorFilterInput) return;
+    
+    // Use project's error filter strings, or default to "ERROR"
+    const errorFilter = project.errorFilterStrings || 'ERROR';
+    errorFilterInput.value = errorFilter;
+}
+
+// Save error filter strings to active project
+function saveErrorFilterToActiveProject() {
+    if (!activeProjectId || !errorFilterInput) return;
+    
+    const errorFilterValue = errorFilterInput.value.trim() || 'ERROR';
+    
+    chrome.storage.local.get(['projects'], (result) => {
+        const projects = result.projects || [];
+        const projectIndex = projects.findIndex(p => p.id === activeProjectId);
+        
+        if (projectIndex !== -1) {
+            projects[projectIndex] = {
+                ...projects[projectIndex],
+                errorFilterStrings: errorFilterValue
+            };
+            
+            chrome.storage.local.set({ projects: projects }, () => {
+                // Saved successfully
+            });
+        }
     });
 }
 

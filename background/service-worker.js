@@ -383,6 +383,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
   
+  if (message.type === 'IS_TAB_MONITORED') {
+    // Check if the sender's tab is the monitored tab
+    const senderTabId = sender.tab ? sender.tab.id : null;
+    const isMonitored = monitoredTabId !== null && senderTabId === monitoredTabId;
+    sendResponse({ isMonitored: isMonitored });
+    return false;
+  }
+  
   if (message.type === 'SCREENSHOT_SELECTION_COMPLETE' || message.type === 'SCREENSHOT_SELECTION_CANCELLED') {
     // Allow these messages to pass through to side panel
     // Return false to allow side panel to receive them

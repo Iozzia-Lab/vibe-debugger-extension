@@ -65,12 +65,19 @@
     return 'log_' + Date.now() + '_' + (++logIdCounter);
   }
   
+  // Flag to track if this tab is monitored (for network interception)
+  let isTabMonitored = false;
+  
   // Send captured request to content script via postMessage
-  // Note: Background service worker filters by monitoredTabId, so we send from all tabs
-  // but only data from monitored tab is stored/returned. Also skip CAPTCHA pages.
+  // Only send if tab is monitored to avoid interference with other sites
   function sendToContentScript(data) {
     // Skip if on CAPTCHA page
     if (isCaptchaPage()) {
+      return;
+    }
+    
+    // Only send network requests if tab is monitored
+    if (!isTabMonitored) {
       return;
     }
     
@@ -222,9 +229,12 @@
     }
   }
   
-  // Intercept fetch()
+  // Store original fetch and XHR (before any interception)
   const originalFetch = window.fetch;
-  window.fetch = function() {
+  const OriginalXHR = window.XMLHttpRequest;
+  
+  // Wrapped fetch function (only used when monitoring is active)
+  function wrappedFetch() {
     const args = Array.prototype.slice.call(arguments);
     const url = args[0];
     
@@ -351,9 +361,8 @@
       });
   };
   
-  // Intercept XMLHttpRequest
-  const OriginalXHR = window.XMLHttpRequest;
-  window.XMLHttpRequest = function() {
+  // Wrapped XMLHttpRequest constructor (only used when monitoring is active)
+  function wrappedXMLHttpRequest() {
     const xhr = new OriginalXHR();
     const requestId = generateRequestId();
     const requestData = {
@@ -533,7 +542,7 @@
     return xhr;
   };
   
-  // Intercept console methods
+  // Store original console methods (before any interception)
   const originalConsole = {
     log: console.log,
     error: console.error,
@@ -542,11 +551,19 @@
     debug: console.debug
   };
   
-  // Helper function to intercept console method
+  // Flag to track if console interception is active (only intercept when tab is monitored)
+  let isConsoleInterceptionActive = false;
+  
+  // Helper function to intercept console method (only if interception is active)
   function interceptConsoleMethod(methodName, originalMethod) {
     console[methodName] = function() {
-      // Call original method first
+      // Call original method first (always)
       originalMethod.apply(console, arguments);
+      
+      // Only capture if interception is active (tab is monitored)
+      if (!isConsoleInterceptionActive) {
+        return;
+      }
       
       // Capture the log
       const logId = generateLogId();
@@ -575,12 +592,67 @@
     };
   }
   
-  // Intercept all console methods
-  interceptConsoleMethod('log', originalConsole.log);
-  interceptConsoleMethod('error', originalConsole.error);
-  interceptConsoleMethod('warn', originalConsole.warn);
-  interceptConsoleMethod('info', originalConsole.info);
-  interceptConsoleMethod('debug', originalConsole.debug);
+  // Function to enable console interception (only wrap when needed)
+  function enableConsoleInterception() {
+    if (isConsoleInterceptionActive) {
+      return; // Already enabled
+    }
+    isConsoleInterceptionActive = true;
+    interceptConsoleMethod('log', originalConsole.log);
+    interceptConsoleMethod('error', originalConsole.error);
+    interceptConsoleMethod('warn', originalConsole.warn);
+    interceptConsoleMethod('info', originalConsole.info);
+    interceptConsoleMethod('debug', originalConsole.debug);
+  }
+  
+  // Function to disable console interception (restore originals)
+  function disableConsoleInterception() {
+    if (!isConsoleInterceptionActive) {
+      return; // Already disabled
+    }
+    isConsoleInterceptionActive = false;
+    console.log = originalConsole.log;
+    console.error = originalConsole.error;
+    console.warn = originalConsole.warn;
+    console.info = originalConsole.info;
+    console.debug = originalConsole.debug;
+  }
+  
+  // Listen for messages from content script to enable/disable interception
+  window.addEventListener('message', function(event) {
+    // Only accept messages from the same window
+    if (event.source !== window) {
+      return;
+    }
+    
+    if (event.data && event.data.type === 'ENABLE_CONSOLE_INTERCEPTION') {
+      const enabled = event.data.enabled === true;
+      isTabMonitored = enabled; // Also use this for network interception
+      
+      if (enabled) {
+        enableConsoleInterception();
+        enableNetworkInterception();
+      } else {
+        disableConsoleInterception();
+        disableNetworkInterception();
+      }
+    }
+  });
+  
+  // Function to enable network interception (fetch and XHR)
+  function enableNetworkInterception() {
+    window.fetch = wrappedFetch;
+    window.XMLHttpRequest = wrappedXMLHttpRequest;
+  }
+  
+  // Function to disable network interception (restore originals)
+  function disableNetworkInterception() {
+    window.fetch = originalFetch;
+    window.XMLHttpRequest = OriginalXHR;
+  }
+  
+  // By default, don't intercept network requests (only when monitoring is enabled)
+  // Network interception will be enabled when monitoring starts
   
   // Generate XPath from DOM element
   function getXPath(element) {
@@ -648,6 +720,11 @@
   // Click event handler
   function handleClick(event) {
     try {
+      // Only capture clicks if tab is monitored
+      if (!isTabMonitored) {
+        return;
+      }
+      
       // Skip click logging on CAPTCHA pages to avoid interference
       if (isCaptchaPage()) {
         return;
@@ -666,10 +743,7 @@
       // Log through console.log (our intercepted version) which will be captured
       console.log(comment);
     } catch (e) {
-      // Log error but don't break page functionality
-      if (originalConsole && originalConsole.error) {
-        originalConsole.error('[Network Capture] Error capturing click:', e, e.stack);
-      }
+      // Silently fail - don't interfere with page functionality
     }
   }
   
@@ -677,7 +751,7 @@
   // Track if listener is already attached
   let clickListenerAttached = false;
   
-  // Add click event listener
+  // Add click event listener (always attach, but handler checks if monitored)
   function setupClickCapture() {
     if (clickListenerAttached) {
       return; // Already attached
@@ -685,11 +759,12 @@
     
     try {
       // Use document with capture phase to catch all clicks
+      // Handler will check isTabMonitored before capturing
       document.addEventListener('click', handleClick, true);
       clickListenerAttached = true;
-      originalConsole.log('[Network Capture] Click listener attached');
+      // Don't log this - it's too noisy and happens on all pages
     } catch (e) {
-      originalConsole.error('[Network Capture] Failed to attach click listener:', e);
+      // Silently fail - don't interfere with page
     }
   }
   
@@ -704,6 +779,5 @@
   // Also try when window loads (final backup)
   window.addEventListener('load', setupClickCapture, { once: true });
   
-  // Debug: Log that injection worked
-  originalConsole.log('[Network Capture] Injection successful - intercepting fetch, XHR, console, and clicks');
+  // Don't log injection success - it's too noisy and happens on all pages
 })();
