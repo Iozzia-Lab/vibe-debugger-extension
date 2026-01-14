@@ -58,15 +58,50 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
+    padding: 4px 12px;
     background: #252526;
     border-bottom: 1px solid #3e3e42;
     flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 .network-results-count {
     font-size: 12px;
     color: #858585;
+}
+
+.btn-combine {
+    background: #555;
+    color: #858585;
+    border: none;
+    padding: 4px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-combine:hover {
+    background: #666;
+    color: #d4d4d4;
+}
+
+.btn-combine.active {
+    background: #0e639c;
+    color: white;
+}
+
+.btn-combine.active:hover {
+    background: #1177bb;
+}
+
+.btn-combine i {
+    font-size: 12px;
 }
 
 .btn-copy-urls {
@@ -643,6 +678,14 @@ button:active {
     vertical-align: baseline;
     border-radius: 3px;
     margin-right: 6px;
+}
+
+.count-badge {
+    background: #0e639c;
+    color: #ffffff;
+    margin-left: 0;
+    margin-right: 6px;
+    text-transform: none;
 }
 
 .error-badge {

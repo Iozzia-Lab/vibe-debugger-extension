@@ -7,6 +7,7 @@ let filteredRequests = [];
 let currentDetailRequest = null;
 let currentFilter = 'all';
 let errorsFilterActive = false; // Independent error filter toggle
+let combineEnabled = true; // Combine duplicate requests (default ON)
 let isContextInvalidated = false;
 let selectedRequestIds = new Set(); // Track selected request IDs
 let currentTabId = null; // Track current tab ID
@@ -15,6 +16,7 @@ let currentTabId = null; // Track current tab ID
 const requestList = document.getElementById('requestList');
 const networkResultsHeader = document.getElementById('networkResultsHeader');
 const networkResultsCount = document.getElementById('networkResultsCount');
+const combineBtn = document.getElementById('combineBtn');
 const copyUrlsBtn = document.getElementById('copyUrlsBtn');
 const listView = document.getElementById('listView');
 const detailView = document.getElementById('detailView');
@@ -338,6 +340,19 @@ function setupEventListeners() {
         });
     }
     
+    // Combine button toggle
+    if (combineBtn) {
+        combineBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            combineEnabled = !combineEnabled;
+            combineBtn.classList.toggle('active', combineEnabled);
+            // Save combine state to active project
+            saveCombineStateToActiveProject();
+            // Refresh the list to show grouped/ungrouped requests
+            applyFilters();
+        });
+    }
+    
     if (showHeadersDetailCheckbox) {
         showHeadersDetailCheckbox.addEventListener('change', () => {
             toggleHeaders();
@@ -656,6 +671,59 @@ function saveErrorsFilterStateToActiveProject() {
     });
 }
 
+// Save combine state to active project
+function saveCombineStateToActiveProject() {
+    if (!activeProjectId) return;
+    
+    chrome.storage.local.get(['projects'], (result) => {
+        const projects = result.projects || [];
+        const projectIndex = projects.findIndex(p => p.id === activeProjectId);
+        
+        if (projectIndex !== -1) {
+            projects[projectIndex] = {
+                ...projects[projectIndex],
+                combineEnabled: combineEnabled
+            };
+            
+            chrome.storage.local.set({ projects: projects }, () => {
+                // Saved successfully
+            });
+        }
+    });
+}
+
+// Load combine state from active project
+function loadCombineStateFromActiveProject() {
+    if (!activeProjectId) {
+        // Fallback to default (true)
+        combineEnabled = true;
+        if (combineBtn) {
+            combineBtn.classList.add('active');
+        }
+        return;
+    }
+    
+    chrome.storage.local.get(['projects'], (result) => {
+        const projects = result.projects || [];
+        const project = projects.find(p => p.id === activeProjectId);
+        if (project) {
+            if (project.combineEnabled !== undefined) {
+                combineEnabled = project.combineEnabled;
+            } else {
+                combineEnabled = true; // Default to ON
+            }
+            if (combineBtn) {
+                combineBtn.classList.toggle('active', combineEnabled);
+            }
+        } else {
+            combineEnabled = true; // Default to ON
+            if (combineBtn) {
+                combineBtn.classList.add('active');
+            }
+        }
+    });
+}
+
 // Recording state
 let isRecording = true; // Default to recording on
 
@@ -897,6 +965,58 @@ function applyFilters() {
     updateNetworkResultsHeader();
 }
 
+// Group requests by URL, payload, and response (exact match)
+function groupRequests(requests) {
+    if (!combineEnabled) {
+        // Return requests as-is with count 1
+        return requests.map(req => ({
+            requests: [req],
+            count: 1,
+            representative: req
+        }));
+    }
+    
+    // Create a map to group requests
+    const groups = new Map();
+    
+    requests.forEach(req => {
+        // Skip pending requests - don't group them
+        const isPending = req.pending === true || req.status === null || req.status === undefined;
+        if (isPending) {
+            // Add pending requests as individual groups
+            const key = `pending_${req.id}`;
+            groups.set(key, {
+                requests: [req],
+                count: 1,
+                representative: req
+            });
+            return;
+        }
+        
+        // Create a key from URL, payload, and response
+        const payloadStr = req.payload ? JSON.stringify(req.payload) : '';
+        const responseStr = req.response ? JSON.stringify(req.response) : '';
+        const key = `${req.url}|||${payloadStr}|||${responseStr}`;
+        
+        if (groups.has(key)) {
+            // Add to existing group
+            const group = groups.get(key);
+            group.requests.push(req);
+            group.count++;
+        } else {
+            // Create new group
+            groups.set(key, {
+                requests: [req],
+                count: 1,
+                representative: req
+            });
+        }
+    });
+    
+    // Return array of groups
+    return Array.from(groups.values());
+}
+
 // Filter requests by search term
 function filterRequests() {
     applyFilters();
@@ -944,7 +1064,11 @@ function renderRequestList() {
         return;
     }
     
-    requestList.innerHTML = filteredRequests.map((req, index) => {
+    // Group requests if combine is enabled
+    const groupedRequests = groupRequests(filteredRequests);
+    
+    requestList.innerHTML = groupedRequests.map((group, index) => {
+        const req = group.representative;
         const isPending = req.pending === true || req.status === null || req.status === undefined;
         const statusClass = isPending ? 'pending' : getStatusClass(req.status);
         const uriPath = getUriPath(req.url);
@@ -955,7 +1079,9 @@ function renderRequestList() {
             selectedRequestIds.delete(req.id);
         }
         
-        const isChecked = !isPending && selectedRequestIds.has(req.id);
+        // Check if any request in the group is selected
+        const groupRequestIds = group.requests.map(r => r.id);
+        const isGroupSelected = groupRequestIds.some(id => selectedRequestIds.has(id));
         const disabledAttr = isPending ? 'disabled' : '';
         
         // Check if response contains any of the error filter strings (comma-separated)
@@ -991,15 +1117,24 @@ function renderRequestList() {
             ? '<span class="request-status-text pending"><span class="loading-dots">.</span></span>'
             : `<span class="request-status-text ${statusClass}">${req.status}</span>`;
         
-        // Add error badge if response contains ERROR
+        // Add count badge if count > 1
+        const countBadge = group.count > 1 
+            ? `<span class="badge count-badge">${group.count}</span>` 
+            : '';
+        
+        // Add error badge if response contains ERROR (positioned after count badge)
         const errorBadge = hasErrorInResponse 
             ? '<span class="badge error-badge">Error</span>' 
             : '';
         
+        // Use first request ID for data attributes (for selection)
+        const requestId = group.requests[0].id;
+        
         return `${separator}
-            <div class="request-item-text" data-request-id="${req.id}" title="${escapeHtml(req.url)}">
-                <input type="checkbox" class="request-checkbox" data-request-id="${req.id}" ${isChecked ? 'checked' : ''} ${disabledAttr}>
-                <span class="request-url-text" data-request-id="${req.id}">${escapeHtml(uriPath)}</span>
+            <div class="request-item-text" data-request-id="${requestId}" data-group-count="${group.count}" title="${escapeHtml(req.url)}">
+                <input type="checkbox" class="request-checkbox" data-request-id="${requestId}" data-group-count="${group.count}" ${isGroupSelected ? 'checked' : ''} ${disabledAttr}>
+                <span class="request-url-text" data-request-id="${requestId}">${escapeHtml(uriPath)}</span>
+                ${countBadge}
                 ${errorBadge}
                 ${statusDisplay}
             </div>
@@ -1016,10 +1151,32 @@ function renderRequestList() {
                 return;
             }
             const requestId = checkbox.getAttribute('data-request-id');
+            const groupCount = parseInt(checkbox.getAttribute('data-group-count') || '1');
+            
             if (checkbox.checked) {
-                selectedRequestIds.add(requestId);
+                // If this is a grouped request, select all requests in the group
+                if (groupCount > 1) {
+                    const group = groupedRequests.find(g => g.requests[0].id === requestId);
+                    if (group) {
+                        group.requests.forEach(req => {
+                            selectedRequestIds.add(req.id);
+                        });
+                    }
+                } else {
+                    selectedRequestIds.add(requestId);
+                }
             } else {
-                selectedRequestIds.delete(requestId);
+                // If this is a grouped request, deselect all requests in the group
+                if (groupCount > 1) {
+                    const group = groupedRequests.find(g => g.requests[0].id === requestId);
+                    if (group) {
+                        group.requests.forEach(req => {
+                            selectedRequestIds.delete(req.id);
+                        });
+                    }
+                } else {
+                    selectedRequestIds.delete(requestId);
+                }
             }
             updateCopySelectedButton();
             updateConsoleStats(); // Update stats when selection changes
@@ -1030,7 +1187,15 @@ function renderRequestList() {
     requestList.querySelectorAll('.request-url-text').forEach(item => {
         item.addEventListener('click', () => {
             const requestId = item.getAttribute('data-request-id');
-            const request = filteredRequests.find(r => r.id === requestId);
+            // Find the request - could be in groupedRequests or filteredRequests
+            let request = filteredRequests.find(r => r.id === requestId);
+            if (!request) {
+                // Try to find in grouped requests
+                for (const group of groupedRequests) {
+                    request = group.requests.find(r => r.id === requestId);
+                    if (request) break;
+                }
+            }
             if (request) {
                 showDetailView(request);
             }
@@ -1748,12 +1913,31 @@ function copyNetworkRequestsToClipboard(selectedRequests) {
     text += 'Network Requests:\n';
     text += '='.repeat(80) + '\n\n';
     
-    selectedRequests.forEach((req, index) => {
+    // Group selected requests if combine is enabled
+    let requestsToProcess;
+    if (combineEnabled) {
+        const groupedSelected = groupRequests(selectedRequests);
+        requestsToProcess = groupedSelected.map(group => ({
+            requests: group.requests,
+            count: group.count,
+            representative: group.representative
+        }));
+    } else {
+        requestsToProcess = selectedRequests.map(req => ({
+            requests: [req],
+            count: 1,
+            representative: req
+        }));
+    }
+    
+    requestsToProcess.forEach((group, index) => {
         if (index > 0) {
             text += '\n' + '='.repeat(80) + '\n\n';
         }
         
-        text += `Request ${index + 1}:\n`;
+        const req = group.representative;
+        const countNotation = group.count > 1 ? ` (x${group.count})` : '';
+        text += `Request ${index + 1}${countNotation}:\n`;
         text += '-'.repeat(80) + '\n';
         text += `URL: ${req.url}\n`;
         text += `Method: ${req.method}\n`;
@@ -1896,12 +2080,31 @@ function copyToClipboardWithConsole(selectedRequests, consoleLogs) {
     text += 'Network Requests:\n';
     text += '='.repeat(80) + '\n\n';
     
-    selectedRequests.forEach((req, index) => {
+    // Group selected requests if combine is enabled
+    let requestsToProcess;
+    if (combineEnabled) {
+        const groupedSelected = groupRequests(selectedRequests);
+        requestsToProcess = groupedSelected.map(group => ({
+            requests: group.requests,
+            count: group.count,
+            representative: group.representative
+        }));
+    } else {
+        requestsToProcess = selectedRequests.map(req => ({
+            requests: [req],
+            count: 1,
+            representative: req
+        }));
+    }
+    
+    requestsToProcess.forEach((group, index) => {
         if (index > 0) {
             text += '\n' + '='.repeat(80) + '\n\n';
         }
         
-        text += `Request ${index + 1}:\n`;
+        const req = group.representative;
+        const countNotation = group.count > 1 ? ` (x${group.count})` : '';
+        text += `Request ${index + 1}${countNotation}:\n`;
         text += '-'.repeat(80) + '\n';
         text += `URL: ${req.url}\n`;
         text += `Method: ${req.method}\n`;
@@ -2109,6 +2312,7 @@ function loadProjects() {
         renderProjectsList(projects);
         // Load filter states for the active project (or fallback to global if no project)
         loadFilterStateFromActiveProject();
+        loadCombineStateFromActiveProject();
         // Also load filter input values
         if (activeProjectId) {
             loadErrorFilterFromActiveProject();
@@ -2125,6 +2329,7 @@ function selectProject(projectId) {
         loadErrorFilterFromActiveProject(); // Load error filter strings for the selected project
         loadNetworkFilterFromActiveProject(); // Load network filter strings for the selected project
         loadFilterStateFromActiveProject(); // Load filter button states for the selected project
+        loadCombineStateFromActiveProject(); // Load combine state for the selected project
     });
 }
 
@@ -2223,6 +2428,7 @@ function saveProject(e) {
                 networkFilterStrings: '', // Default network filter (empty)
                 currentFilter: 'all', // Default filter type
                 errorsFilterActive: false, // Default errors filter state
+                combineEnabled: true, // Default combine state (ON)
                 createdAt: Date.now()
             };
             projects.push(newProject);
@@ -2409,21 +2615,45 @@ function copyUrlsList() {
         return;
     }
     
+    // Group requests if combine is enabled
+    const groupedRequests = groupRequests(filteredRequests);
+    
     // Format: URL | Timestamp | Method | Status | Initiator
     // Calculate timing relative to first request
-    const sortedRequests = [...filteredRequests].sort((a, b) => a.timestamp - b.timestamp);
+    const allRequestsFlat = groupedRequests.flatMap(group => group.requests);
+    const sortedRequests = [...allRequestsFlat].sort((a, b) => a.timestamp - b.timestamp);
     const firstTimestamp = sortedRequests[0].timestamp;
     
-    const urlsText = sortedRequests.map(req => {
-        const isPending = req.pending === true || req.status === null || req.status === undefined;
-        const timing = req.timestamp - firstTimestamp;
-        const timingMs = timing > 0 ? `+${timing}ms` : '0ms';
-        const method = req.method || 'GET';
-        const status = isPending ? 'Pending' : `${req.status} ${req.statusText || ''}`.trim();
-        const initiator = req.initiator || 'Unknown';
-        
-        return `${req.url} | ${timingMs} | ${method} | ${status} | ${initiator}`;
-    }).join('\n');
+    // Build output based on combine state
+    let urlsText;
+    if (combineEnabled) {
+        // Use grouped representation
+        const sortedGroups = [...groupedRequests].sort((a, b) => a.representative.timestamp - b.representative.timestamp);
+        urlsText = sortedGroups.map(group => {
+            const req = group.representative;
+            const isPending = req.pending === true || req.status === null || req.status === undefined;
+            const timing = req.timestamp - firstTimestamp;
+            const timingMs = timing > 0 ? `+${timing}ms` : '0ms';
+            const method = req.method || 'GET';
+            const status = isPending ? 'Pending' : `${req.status} ${req.statusText || ''}`.trim();
+            const initiator = req.initiator || 'Unknown';
+            const countNotation = group.count > 1 ? ` (x${group.count})` : '';
+            
+            return `${req.url} | ${timingMs} | ${method} | ${status} | ${initiator}${countNotation}`;
+        }).join('\n');
+    } else {
+        // Use all requests individually
+        urlsText = sortedRequests.map(req => {
+            const isPending = req.pending === true || req.status === null || req.status === undefined;
+            const timing = req.timestamp - firstTimestamp;
+            const timingMs = timing > 0 ? `+${timing}ms` : '0ms';
+            const method = req.method || 'GET';
+            const status = isPending ? 'Pending' : `${req.status} ${req.statusText || ''}`.trim();
+            const initiator = req.initiator || 'Unknown';
+            
+            return `${req.url} | ${timingMs} | ${method} | ${status} | ${initiator}`;
+        }).join('\n');
+    }
     
     navigator.clipboard.writeText(urlsText).then(() => {
         // Show feedback
