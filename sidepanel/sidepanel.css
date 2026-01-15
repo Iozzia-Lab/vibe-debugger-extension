@@ -37,7 +37,7 @@ body {
 .header-left-controls {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 5px;
     flex: 1;
 }
 
@@ -913,6 +913,26 @@ button:active {
     text-align: left;
 }
 
+.project-file-status {
+    font-size: 14px;
+    margin-left: 6px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.project-file-status.fa-file-circle-check {
+    color: #858585; /* Grey */
+}
+
+.project-file-status.fa-file-circle-question {
+    color: #ffa500; /* Yellow/Orange */
+}
+
+.project-file-status.fa-file-circle-xmark {
+    color: #ff6b6b; /* Red */
+}
+
 /* Console Viewer Button */
 .btn-console-viewer {
     background: #3e3e42;
@@ -989,7 +1009,7 @@ button:active {
 .copy-console-label {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
     color: #d4d4d4;
     font-size: 8.4px;
     line-height: 1;
@@ -1005,7 +1025,73 @@ button:active {
     cursor: pointer;
     width: 16px;
     height: 16px;
-    accent-color: #0e639c;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid #858585;
+    background: transparent;
+    border-radius: 2px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.copy-console-label input[type="checkbox"]:checked {
+    background: #0e639c;
+    border-color: #0e639c;
+}
+
+.copy-console-label input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.auto-clear-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #d4d4d4;
+    font-size: 8.4px;
+    line-height: 1;
+    cursor: pointer;
+    user-select: none;
+}
+
+.auto-clear-label span {
+    line-height: 1;
+}
+
+.auto-clear-label input[type="checkbox"] {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid #858585;
+    background: transparent;
+    border-radius: 2px;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.auto-clear-label input[type="checkbox"]:checked {
+    background: #ff4444;
+    border-color: #ff4444;
+}
+
+.auto-clear-label input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #000000;
+    font-size: 12px;
+    font-weight: bold;
 }
 
 .copy-console-label span {

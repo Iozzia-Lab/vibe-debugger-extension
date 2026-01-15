@@ -17,6 +17,8 @@ let markupViewerWindowId = null; // Track markup viewer window ID
 
 // Track the tab ID being monitored (where side panel was opened)
 let monitoredTabId = null;
+// Track previous URL for monitored tab to detect reloads vs navigation
+let monitoredTabPreviousUrl = null;
 
 // Cleanup interval to remove stale data from closed tabs
 let cleanupInterval = null;
@@ -73,6 +75,12 @@ chrome.storage.local.get(['monitoredTabId'], (result) => {
         monitoredTabId = null;
       } else {
         monitoredTabId = result.monitoredTabId;
+        // Initialize URL tracking for restored tab
+        chrome.tabs.get(monitoredTabId, (tab) => {
+          if (tab && tab.url) {
+            monitoredTabPreviousUrl = tab.url;
+          }
+        });
         console.log('[Network Capture] Restored monitored tab:', monitoredTabId);
         // Enable interception in the restored tab
         setTimeout(() => {
@@ -93,6 +101,42 @@ chrome.storage.local.get(['monitoredTabId'], (result) => {
   }
 });
 
+// Detect page reloads (not navigation) for auto-clear
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Only process if this is the monitored tab
+  if (monitoredTabId !== tabId) {
+    return;
+  }
+  
+  // Check if auto-clear is enabled
+  chrome.storage.local.get(['autoClearEnabled'], (result) => {
+    if (!result.autoClearEnabled) {
+      return; // Auto-clear disabled
+    }
+    
+    // Detect reload: status is "loading" and URL hasn't changed
+    if (changeInfo.status === 'loading' && tab.url) {
+      const currentUrl = tab.url;
+      
+      // If URL matches previous URL, it's a reload (not navigation)
+      if (monitoredTabPreviousUrl && currentUrl === monitoredTabPreviousUrl) {
+        // This is a reload - clear data
+        clearTabData();
+        console.log('[Network Capture] Auto-cleared data on page reload');
+      }
+      
+      // Update previous URL for next check
+      monitoredTabPreviousUrl = currentUrl;
+    }
+    
+    // Reset previous URL when tab completes loading (for next reload detection)
+    if (changeInfo.status === 'complete' && tab.url) {
+      // Keep the URL for reload detection, but don't clear here
+      monitoredTabPreviousUrl = tab.url;
+    }
+  });
+});
+
 // Clear monitoredTabId when tab is closed and clean up data
 chrome.tabs.onRemoved.addListener((tabId) => {
   // Clean up data for the closed tab
@@ -102,6 +146,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   // If it was the monitored tab, clear tracking
   if (monitoredTabId === tabId) {
     monitoredTabId = null;
+    monitoredTabPreviousUrl = null; // Clear URL tracking
     chrome.storage.local.remove(['monitoredTabId']);
     console.log('[Network Capture] Monitored tab closed, cleared tracking and data');
   }
@@ -204,6 +249,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   
   // Set the monitored tab to the tab where panel was opened
   monitoredTabId = tab.id;
+  monitoredTabPreviousUrl = tab.url; // Initialize URL tracking
   // Persist to storage
   chrome.storage.local.set({ monitoredTabId: tab.id });
   

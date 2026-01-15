@@ -53,6 +53,7 @@ const cancelProjectForm = document.getElementById('cancelProjectForm');
 const copySelectedBtn = document.getElementById('copySelectedBtn');
 const openConsoleViewerBtn = document.getElementById('openConsoleViewerBtn');
 const copyConsoleCheckbox = document.getElementById('copyConsoleCheckbox');
+const autoClearCheckbox = document.getElementById('autoClearCheckbox');
 const consoleStats = document.getElementById('consoleStats');
 const tabInfoSection = document.getElementById('tabInfoSection');
 const tabFavicon = document.getElementById('tabFavicon');
@@ -61,6 +62,7 @@ const tabUrl = document.getElementById('tabUrl');
 const activeProjectName = document.getElementById('activeProjectName');
 const projectsDropdown = document.getElementById('projectsDropdown');
 const projectsButtonWrapper = document.querySelector('.projects-button-wrapper');
+const projectFileStatus = document.getElementById('projectFileStatus');
 const loadBtn = document.getElementById('loadBtn');
 let editingProjectId = null;
 let activeProjectId = null; // Currently active project
@@ -77,8 +79,15 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCopySelectedButton();
     updateConsoleStats();
     updateMarkupButtonState();
-    updateActiveProjectDisplay();
+    updateActiveProjectDisplay(); // This will also check file status
     updateReloadButton();
+    
+    // Load auto-clear checkbox state
+    chrome.storage.local.get(['autoClearEnabled'], (result) => {
+        if (autoClearCheckbox) {
+            autoClearCheckbox.checked = result.autoClearEnabled === true;
+        }
+    });
     
     // Refresh requests periodically (500ms balance between responsiveness and performance)
     setInterval(loadRequests, 500);
@@ -206,6 +215,13 @@ function setupEventListeners() {
             if (!markupBtn.disabled) {
                 openMarkupViewer();
             }
+        });
+    }
+    
+    // Auto Clear checkbox change event
+    if (autoClearCheckbox) {
+        autoClearCheckbox.addEventListener('change', () => {
+            chrome.storage.local.set({ autoClearEnabled: autoClearCheckbox.checked });
         });
     }
     
@@ -1775,6 +1791,93 @@ function updateReloadButton() {
     });
 }
 
+// Update project file status icon
+function updateProjectFileStatusIcon(status) {
+    if (!projectFileStatus) return;
+    
+    // Remove all status classes
+    projectFileStatus.classList.remove('fa-file-circle-check', 'fa-file-circle-question', 'fa-file-circle-xmark');
+    
+    switch (status) {
+        case 'check':
+            projectFileStatus.classList.add('fa-file-circle-check');
+            projectFileStatus.title = 'All files found and working';
+            break;
+        case 'question':
+            projectFileStatus.classList.add('fa-file-circle-question');
+            projectFileStatus.title = 'Missing configuration or files';
+            break;
+        case 'error':
+            projectFileStatus.classList.add('fa-file-circle-xmark');
+            projectFileStatus.title = 'File not found or invalid (404)';
+            break;
+        default:
+            projectFileStatus.classList.add('fa-file-circle-question');
+            projectFileStatus.title = 'Checking file status...';
+    }
+}
+
+// Check project file status
+function checkProjectFileStatus(project) {
+    if (!project) {
+        updateProjectFileStatusIcon('question');
+        return;
+    }
+    
+    // Check if backend folder is set
+    if (!project.folder || !project.folder.trim()) {
+        updateProjectFileStatusIcon('question');
+        return;
+    }
+    
+    // Check if log file path is set
+    const logFilePath = project.logFilePath || 'debug.log';
+    if (!logFilePath || !logFilePath.trim()) {
+        updateProjectFileStatusIcon('question');
+        return;
+    }
+    
+    // Check if combined debug file path is set
+    if (!project.combinedDebugFilePath || !project.combinedDebugFilePath.trim()) {
+        updateProjectFileStatusIcon('question');
+        return;
+    }
+    
+    // All configuration is present, now check if the PHP helper file is accessible
+    const projectBackendDomain = project.backendDomain || project.domain;
+    if (!projectBackendDomain) {
+        updateProjectFileStatusIcon('question');
+        return;
+    }
+    
+    let projectUrl = projectBackendDomain;
+    if (!projectUrl.startsWith('http://') && !projectUrl.startsWith('https://')) {
+        projectUrl = 'http://' + projectUrl;
+    }
+    projectUrl = projectUrl.replace(/\/+$/, '');
+    const scriptUrl = `${projectUrl}/debug_log_helper.php?action=clear&log=test`;
+    
+    // Try to access the helper file
+    fetch(scriptUrl, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+    })
+    .then(response => {
+        if (response.status === 404) {
+            updateProjectFileStatusIcon('error');
+        } else if (response.ok || response.status < 500) {
+            // File exists (even if test log doesn't exist, the script should respond)
+            updateProjectFileStatusIcon('check');
+        } else {
+            updateProjectFileStatusIcon('error');
+        }
+    })
+    .catch(error => {
+        // Network error or file not found
+        updateProjectFileStatusIcon('error');
+    });
+}
+
 // Update active project display in header
 function updateActiveProjectDisplay() {
     chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
@@ -1791,11 +1894,15 @@ function updateActiveProjectDisplay() {
                 loadErrorFilterFromProject(project);
                 // Load network filter strings for the active project
                 loadNetworkFilterFromProject(project);
+                // Check file status
+                checkProjectFileStatus(project);
             } else {
                 activeProjectName.textContent = 'No Project';
+                updateProjectFileStatusIcon('question'); // Yellow - no project
             }
         } else {
             activeProjectName.textContent = 'No Project';
+            updateProjectFileStatusIcon('question'); // Yellow - no project
             // Reset to default if no active project
             if (errorFilterInput) {
                 errorFilterInput.value = 'ERROR';
@@ -2648,6 +2755,14 @@ function selectProject(projectId) {
         loadNetworkFilterFromActiveProject(); // Load network filter strings for the selected project
         loadFilterStateFromActiveProject(); // Load filter button states for the selected project
         loadCombineStateFromActiveProject(); // Load combine state for the selected project
+        // Check file status for selected project
+        chrome.storage.local.get(['projects'], (result) => {
+            const projects = result.projects || [];
+            const project = projects.find(p => p.id === projectId);
+            if (project) {
+                checkProjectFileStatus(project);
+            }
+        });
     });
 }
 
@@ -2760,6 +2875,13 @@ function saveProject(e) {
             closeProjectForm();
             updateActiveProjectDisplay();
             updateReloadButton();
+            // Check file status after saving
+            if (editingProjectId || activeProjectId) {
+                const savedProject = projects.find(p => p.id === (editingProjectId || activeProjectId));
+                if (savedProject) {
+                    checkProjectFileStatus(savedProject);
+                }
+            }
         });
     });
 }
