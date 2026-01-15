@@ -1139,6 +1139,9 @@ function renderRequestList() {
         return `${separator}
             <div class="request-item-text" data-request-id="${requestId}" data-group-count="${group.count}" title="${escapeHtml(req.url)}">
                 <input type="checkbox" class="request-checkbox" data-request-id="${requestId}" data-group-count="${group.count}" ${isGroupSelected ? 'checked' : ''} ${disabledAttr}>
+                <button class="btn-copy-request" data-request-id="${requestId}" title="Copy request details">
+                    <i class="fa-regular fa-clone"></i>
+                </button>
                 <span class="request-url-text" data-request-id="${requestId}">${escapeHtml(uriPath)}</span>
                 ${countBadge}
                 ${errorBadge}
@@ -1206,6 +1209,79 @@ function renderRequestList() {
                 showDetailView(request);
             }
         });
+    });
+    
+    // Add click listeners to individual copy buttons
+    requestList.querySelectorAll('.btn-copy-request').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const requestId = btn.getAttribute('data-request-id');
+            // Find the request
+            let request = filteredRequests.find(r => r.id === requestId);
+            if (!request) {
+                // Try to find in grouped requests
+                for (const group of groupedRequests) {
+                    request = group.requests.find(r => r.id === requestId);
+                    if (request) break;
+                }
+            }
+            if (request) {
+                copySingleRequest(request, btn);
+            }
+        });
+    });
+}
+
+// Copy single request to clipboard
+function copySingleRequest(request, button) {
+    let text = '';
+    
+    text += 'Network Request:\n';
+    text += '='.repeat(80) + '\n\n';
+    
+    text += `URL: ${request.url}\n`;
+    text += `Method: ${request.method || 'GET'}\n`;
+    const isPending = request.pending === true || request.status === null || request.status === undefined;
+    text += `Status: ${isPending ? 'Pending/Cancelled' : `${request.status} ${request.statusText || ''}`.trim()}\n`;
+    text += `Timestamp: ${formatTimestamp(request.timestamp)}\n`;
+    if (request.initiator) {
+        text += `Initiator: ${request.initiator}\n`;
+    }
+    text += '\n';
+    
+    // Request Headers
+    if (request.requestHeaders && Object.keys(request.requestHeaders).length > 0) {
+        text += 'Request Headers:\n';
+        text += formatData(request.requestHeaders, false);
+        text += '\n\n';
+    }
+    
+    // Request Payload
+    text += 'Payload:\n';
+    text += formatData(request.payload, false);
+    text += '\n\n';
+    
+    // Response Headers
+    if (request.responseHeaders && Object.keys(request.responseHeaders).length > 0) {
+        text += 'Response Headers:\n';
+        text += formatData(request.responseHeaders, false);
+        text += '\n\n';
+    }
+    
+    // Response
+    text += 'Response:\n';
+    text += formatData(request.response, false);
+    text += '\n';
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(text).then(() => {
+        // Show green feedback
+        button.classList.add('copied');
+        setTimeout(() => {
+            button.classList.remove('copied');
+        }, 3000);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
     });
 }
 
