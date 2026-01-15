@@ -74,6 +74,20 @@ chrome.storage.local.get(['monitoredTabId'], (result) => {
       } else {
         monitoredTabId = result.monitoredTabId;
         console.log('[Network Capture] Restored monitored tab:', monitoredTabId);
+        // Enable interception in the restored tab
+        setTimeout(() => {
+          try {
+            chrome.tabs.sendMessage(monitoredTabId, { type: 'ENABLE_CONSOLE_INTERCEPTION', enabled: true }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.log('[Network Capture] Content script not ready yet for restored tab, will enable via periodic check');
+              } else {
+                console.log('[Network Capture] Enabled interception in restored tab');
+              }
+            });
+          } catch (e) {
+            console.log('[Network Capture] Could not send enable message to restored tab');
+          }
+        }, 500);
       }
     });
   }
@@ -196,6 +210,19 @@ chrome.action.onClicked.addListener(async (tab) => {
   // Open side panel FIRST (must be in response to user gesture)
   await chrome.sidePanel.open({ tabId: tab.id });
   
+  // Explicitly enable interception in the content script
+  try {
+    chrome.tabs.sendMessage(tab.id, { type: 'ENABLE_CONSOLE_INTERCEPTION', enabled: true }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.log('[Network Capture] Content script not ready yet, will enable via periodic check');
+      } else {
+        console.log('[Network Capture] Enabled interception in content script');
+      }
+    });
+  } catch (e) {
+    console.log('[Network Capture] Could not send enable message, will enable via periodic check');
+  }
+  
   // Then inject scripts into the page if not already injected
   // This ensures data flows immediately without requiring a page reload
   if (tab.url && (tab.url.startsWith('http') || tab.url.startsWith('https'))) {
@@ -240,6 +267,20 @@ chrome.action.onClicked.addListener(async (tab) => {
         }, 500);
       } else {
         console.log('[Network Capture] Script already injected in tab:', tab.id);
+        // Script is already injected, explicitly enable interception
+        setTimeout(() => {
+          try {
+            chrome.tabs.sendMessage(tab.id, { type: 'ENABLE_CONSOLE_INTERCEPTION', enabled: true }, (response) => {
+              if (chrome.runtime.lastError) {
+                console.log('[Network Capture] Content script not ready, will enable via periodic check');
+              } else {
+                console.log('[Network Capture] Enabled interception in existing injected script');
+              }
+            });
+          } catch (e) {
+            console.log('[Network Capture] Could not send enable message to existing script');
+          }
+        }, 200);
       }
     } catch (e) {
       console.error('[Network Capture] Error injecting script into tab:', tab.id, 'Error:', e);
@@ -387,6 +428,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Check if the sender's tab is the monitored tab
     const senderTabId = sender.tab ? sender.tab.id : null;
     const isMonitored = monitoredTabId !== null && senderTabId === monitoredTabId;
+    console.log('[Network Capture] IS_TAB_MONITORED check: senderTabId=', senderTabId, 'monitoredTabId=', monitoredTabId, 'isMonitored=', isMonitored);
     sendResponse({ isMonitored: isMonitored });
     return false;
   }

@@ -310,6 +310,7 @@ function setupEventListeners() {
             document.getElementById('projectFrontendDomain').value = '';
             document.getElementById('projectBackendDomain').value = '';
             document.getElementById('projectLogFile').value = '';
+            document.getElementById('projectCombinedDebugFile').value = '';
             projectFormModal.classList.remove('hidden');
         });
     }
@@ -732,6 +733,20 @@ function loadRecordingState() {
     chrome.storage.local.get(['isRecording'], (result) => {
         isRecording = result.isRecording !== undefined ? result.isRecording : true;
         updateRecordingButton();
+        // Sync with background script
+        chrome.runtime.sendMessage({ type: 'SET_RECORDING_STATE', isRecording: isRecording }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.warn('[Network Capture] Could not sync recording state:', chrome.runtime.lastError);
+            }
+        });
+        // Also sync console recording state
+        chrome.storage.local.set({ isConsoleRecording: isRecording }, () => {
+            chrome.runtime.sendMessage({ type: 'SET_CONSOLE_RECORDING_STATE', isRecording: isRecording }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.warn('[Network Capture] Could not sync console recording state:', chrome.runtime.lastError);
+                }
+            });
+        });
     });
 }
 
@@ -1052,10 +1067,30 @@ function renderRequestList() {
     }
     
     if (filteredRequests.length === 0) {
+        // Build filter message if filters are active
+        const activeFilters = [];
+        if (currentFilter !== 'all') {
+            activeFilters.push(`Filter: ${currentFilter.toUpperCase()}`);
+        }
+        if (errorsFilterActive && errorFilterInput && errorFilterInput.value.trim()) {
+            activeFilters.push(`Error filter: ${errorFilterInput.value.trim()}`);
+        } else if (errorsFilterActive) {
+            activeFilters.push('Error filter: active');
+        }
+        if (searchInput.value.trim()) {
+            activeFilters.push(`Search: ${searchInput.value.trim()}`);
+        }
+        
+        const filterMessage = activeFilters.length > 0 
+            ? `<p class="hint">No requests match the active filters: ${activeFilters.join(', ')}</p>`
+            : (allRequests.length > 0 
+                ? '<p class="hint">No requests match the current filters.</p>'
+                : '');
+        
         requestList.innerHTML = `
             <div class="empty-state">
                 <p>No requests found.</p>
-                ${searchInput.value ? '<p class="hint">Try a different search term.</p>' : ''}
+                ${filterMessage}
             </div>
         `;
         return;
@@ -1480,7 +1515,7 @@ function clearProjectLogFile(projectId) {
         // Remove trailing slash from projectUrl if present, then add script path
         projectUrl = projectUrl.replace(/\/+$/, '');
         // Use PHP script (comes with XAMPP, no Python needed)
-        const scriptUrl = `${projectUrl}/debug_clear_log.php?log=${encodeURIComponent(fullLogPath)}`;
+        const scriptUrl = `${projectUrl}/debug_log_helper.php?action=clear&log=${encodeURIComponent(fullLogPath)}`;
         
         sendConsoleLog('log', `Attempting to clear log: ${scriptUrl}`);
         
@@ -1525,6 +1560,130 @@ function clearProjectLogFile(projectId) {
         })
         .catch(error => {
             sendConsoleLog('error', `Error: ${error.message || String(error)}`);
+        });
+    });
+}
+
+// Write to combined debug file for active project
+function writeToCombinedDebugFile(text) {
+    if (!activeProjectId || !text) {
+        return; // Silently skip if no active project or no text
+    }
+    
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+        const projects = result.projects || [];
+        const activeProjectId = result.activeProjectId;
+        const project = projects.find(p => p.id === activeProjectId);
+        
+        // Skip if no project or no combined debug file path configured
+        if (!project || !project.combinedDebugFilePath || !project.combinedDebugFilePath.trim()) {
+            return; // Silently skip if not configured
+        }
+        
+        // Check URL match - compare domains with normalization (same as clearProjectLogFile)
+        try {
+            if (!currentTabUrl) {
+                console.log('[Combined Debug File] No current tab URL, skipping write');
+                return;
+            }
+            
+            const tabUrlObj = new URL(currentTabUrl);
+            const tabDomain = tabUrlObj.host.toLowerCase().trim();
+            
+            let projectFrontendDomain = project.frontendDomain || project.domain;
+            
+            // Normalize project domain - remove protocol if present, extract just host
+            if (projectFrontendDomain) {
+                try {
+                    // If it looks like a URL, parse it to get just the host
+                    if (projectFrontendDomain.includes('://') || projectFrontendDomain.startsWith('http')) {
+                        const projectUrlObj = new URL(projectFrontendDomain.startsWith('http') ? projectFrontendDomain : 'http://' + projectFrontendDomain);
+                        projectFrontendDomain = projectUrlObj.host;
+                    }
+                } catch (e) {
+                    // If parsing fails, use as-is (might already be just a domain)
+                }
+            }
+            
+            const normalizedProjectDomain = (projectFrontendDomain || '').toLowerCase().trim();
+            
+            if (tabDomain !== normalizedProjectDomain) {
+                console.log(`[Combined Debug File] URL mismatch (tab: ${tabDomain}, project: ${normalizedProjectDomain}), skipping write`);
+                return;
+            }
+        } catch (e) {
+            console.log(`[Combined Debug File] Invalid URL: ${e.message}, skipping write`);
+            return;
+        }
+        
+        // Construct full file path
+        const fullFilePath = project.folder + '\\' + project.combinedDebugFilePath;
+        
+        // Construct request URL using backend domain
+        const projectBackendDomain = project.backendDomain || project.domain;
+        if (!projectBackendDomain) {
+            console.log('[Combined Debug File] No backend domain configured for project');
+            return;
+        }
+        
+        let projectUrl = projectBackendDomain;
+        if (!projectUrl.startsWith('http://') && !projectUrl.startsWith('https://')) {
+            projectUrl = 'http://' + projectUrl;
+        }
+        // Remove trailing slash from projectUrl if present, then add script path
+        projectUrl = projectUrl.replace(/\/+$/, '');
+        // Use PHP script
+        const scriptUrl = `${projectUrl}/debug_log_helper.php?action=write`;
+        
+        // Send HTTP POST request
+        const formData = new URLSearchParams();
+        formData.append('file', fullFilePath);
+        formData.append('content', text);
+        
+        fetch(scriptUrl, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json'
+            },
+            body: formData
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            // Check content type
+            const contentType = response.headers.get('content-type');
+            if (contentType && !contentType.includes('application/json')) {
+                // Try to read as text first to see what we got
+                return response.text().then(text => {
+                    // Check if server returned PHP code instead of executing it
+                    if (text.trim().startsWith('<?php') || text.trim().startsWith('<!DOCTYPE')) {
+                        throw new Error('Server returned PHP script/HTML instead of executing it. Make sure PHP is enabled in your web server.');
+                    }
+                    // Try to parse as JSON anyway (might be JSON with wrong content-type)
+                    try {
+                        return JSON.parse(text);
+                    } catch (e) {
+                        throw new Error(`Server returned non-JSON response (Content-Type: ${contentType}). Response preview: ${text.substring(0, 200)}`);
+                    }
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data && typeof data === 'object' && 'success' in data) {
+                if (data.success) {
+                    console.log(`[Combined Debug File] Success: ${data.message}`);
+                } else {
+                    console.log(`[Combined Debug File] Failed: ${data.message}`);
+                }
+            } else {
+                console.log(`[Combined Debug File] Unexpected response format: ${JSON.stringify(data)}`);
+            }
+        })
+        .catch(error => {
+            console.log(`[Combined Debug File] Error: ${error.message || String(error)}`);
         });
     });
 }
@@ -2323,6 +2482,8 @@ function copyTextToClipboard(text) {
             copySelectedBtn.classList.add('copied');
             isCopyButtonGreen = true;
         }
+        // Write to combined debug file if configured
+        writeToCombinedDebugFile(text);
     }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy to clipboard. Please try again.');
@@ -2558,6 +2719,7 @@ function saveProject(e) {
         const projects = result.projects || [];
         
         const logFile = document.getElementById('projectLogFile').value.trim() || 'debug.log';
+        const combinedDebugFile = document.getElementById('projectCombinedDebugFile').value.trim() || '';
         
         if (editingProjectId) {
             // Update existing project
@@ -2569,7 +2731,8 @@ function saveProject(e) {
                     folder: folder,
                     frontendDomain: frontendDomain,
                     backendDomain: backendDomain,
-                    logFilePath: logFile
+                    logFilePath: logFile,
+                    combinedDebugFilePath: combinedDebugFile
                 };
             }
         } else {
@@ -2581,6 +2744,7 @@ function saveProject(e) {
                 frontendDomain: frontendDomain,
                 backendDomain: backendDomain,
                 logFilePath: logFile,
+                combinedDebugFilePath: combinedDebugFile,
                 errorFilterStrings: 'ERROR', // Default error filter
                 networkFilterStrings: '', // Default network filter (empty)
                 currentFilter: 'all', // Default filter type
@@ -2614,6 +2778,7 @@ function editProject(projectId) {
             document.getElementById('projectFrontendDomain').value = project.frontendDomain || project.domain || '';
             document.getElementById('projectBackendDomain').value = project.backendDomain || '';
             document.getElementById('projectLogFile').value = project.logFilePath || 'debug.log';
+            document.getElementById('projectCombinedDebugFile').value = project.combinedDebugFilePath || '';
             projectFormModal.classList.remove('hidden');
             projectsModal.classList.add('hidden');
         }
