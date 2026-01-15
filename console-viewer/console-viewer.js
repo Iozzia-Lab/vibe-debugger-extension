@@ -133,6 +133,7 @@ function setupMessageListener() {
                     searchInput.value = '';
                     selectedStartIndex = null;
                     selectedEndIndex = null;
+                    saveTrimSelectionToStorage();
                     expandedRows.clear();
                     clickEvents = [];
                     renderTimeline(clickEvents);
@@ -254,6 +255,7 @@ function applyFilters(preserveTrimSelection = false) {
     if (!preserveTrimSelection) {
         selectedStartIndex = null;
         selectedEndIndex = null;
+        saveTrimSelectionToStorage();
         expandedRows.clear(); // Clear expanded rows when filters change
     } else {
         // Try to restore trim selection by finding the same log objects in the new filtered array
@@ -297,6 +299,9 @@ function applyFilters(preserveTrimSelection = false) {
             timestamp: Date.now() // Add timestamp to trigger updates
         }
     });
+    
+    // Save trim selection to storage
+    saveTrimSelectionToStorage();
     
     renderLogList();
 }
@@ -865,6 +870,9 @@ function attachTrimCheckboxListeners() {
                 selectedStartIndex = null;
             }
             
+            // Save trim selection to storage for sidepanel access
+            saveTrimSelectionToStorage();
+            
             // Re-render to update disabled states and ensure checkbox stays checked
             // The state is set, so renderLogList will recreate it as checked
             renderLogList();
@@ -900,6 +908,9 @@ function attachTrimCheckboxListeners() {
                 selectedEndIndex = null;
             }
             
+            // Save trim selection to storage for sidepanel access
+            saveTrimSelectionToStorage();
+            
             // Re-render to update disabled states, indicators, and ensure checkbox stays checked
             // The state is set, so renderLogList will recreate it as checked
             renderLogList();
@@ -915,6 +926,17 @@ function attachTrimCheckboxListeners() {
     });
 }
 
+// Save trim selection to storage for sidepanel access
+function saveTrimSelectionToStorage() {
+    chrome.storage.local.set({
+        consoleViewerTrimSelection: {
+            selectedStartIndex: selectedStartIndex,
+            selectedEndIndex: selectedEndIndex,
+            timestamp: Date.now()
+        }
+    });
+}
+
 // Copy all logs to clipboard
 function copyAllLogs() {
     if (currentTab === 'console') {
@@ -924,11 +946,17 @@ function copyAllLogs() {
         
         let logsToCopy = [];
         
-        // If both start and end are selected, copy only that range
-        if (selectedStartIndex !== null && selectedEndIndex !== null) {
-            logsToCopy = filteredLogs.slice(selectedStartIndex, selectedEndIndex + 1);
+        // Get trimmed logs based on selection
+        if (selectedStartIndex !== null) {
+            if (selectedEndIndex !== null) {
+                // Both start and end selected - copy range
+                logsToCopy = filteredLogs.slice(selectedStartIndex, selectedEndIndex + 1);
+            } else {
+                // Only start selected - copy from start to end of filtered logs
+                logsToCopy = filteredLogs.slice(selectedStartIndex);
+            }
         } else {
-            // Otherwise, copy all filtered logs
+            // No trim selection - copy all filtered logs
             logsToCopy = filteredLogs;
         }
         

@@ -666,6 +666,11 @@ button:active {
     color: #dcdcaa;
 }
 
+.request-status-text.cancelled {
+    color: #ff6b6b;
+    font-style: italic;
+}
+
 /* Error badge for responses containing ERROR */
 .badge {
     display: inline-block;

@@ -977,32 +977,29 @@ function groupRequests(requests) {
     }
     
     // Create a map to group requests
+    // Group by URL + payload only (allows cancelled requests to group with completed ones)
     const groups = new Map();
     
     requests.forEach(req => {
-        // Skip pending requests - don't group them
         const isPending = req.pending === true || req.status === null || req.status === undefined;
-        if (isPending) {
-            // Add pending requests as individual groups
-            const key = `pending_${req.id}`;
-            groups.set(key, {
-                requests: [req],
-                count: 1,
-                representative: req
-            });
-            return;
-        }
-        
-        // Create a key from URL, payload, and response
         const payloadStr = req.payload ? JSON.stringify(req.payload) : '';
-        const responseStr = req.response ? JSON.stringify(req.response) : '';
-        const key = `${req.url}|||${payloadStr}|||${responseStr}`;
+        
+        // Group by URL + payload only (not response) - allows cancelled to match completed
+        const key = `${req.url}|||${payloadStr}`;
         
         if (groups.has(key)) {
             // Add to existing group
             const group = groups.get(key);
             group.requests.push(req);
             group.count++;
+            
+            // Update representative to prefer completed requests over pending ones
+            const currentRepPending = group.representative.pending === true || 
+                                     group.representative.status === null || 
+                                     group.representative.status === undefined;
+            if (!isPending && currentRepPending) {
+                group.representative = req;
+            }
         } else {
             // Create new group
             groups.set(key, {
@@ -1112,10 +1109,19 @@ function renderRequestList() {
             }
         }
         
-        // Show loading indicator for pending requests
-        const statusDisplay = isPending 
-            ? '<span class="request-status-text pending"><span class="loading-dots">.</span></span>'
-            : `<span class="request-status-text ${statusClass}">${req.status}</span>`;
+        // Show status - if combine is off and request is cancelled, show "Cancelled"
+        let statusDisplay;
+        if (isPending) {
+            if (!combineEnabled) {
+                // When combine is off, show "Cancelled" for pending requests
+                statusDisplay = '<span class="request-status-text cancelled">Cancelled</span>';
+            } else {
+                // When combine is on, show loading dots
+                statusDisplay = '<span class="request-status-text pending"><span class="loading-dots">.</span></span>';
+            }
+        } else {
+            statusDisplay = `<span class="request-status-text ${statusClass}">${req.status}</span>`;
+        }
         
         // Add count badge if count > 1
         const countBadge = group.count > 1 
@@ -1766,9 +1772,8 @@ function updateConsoleStats() {
                     });
                     
                     // Calculate stats for filtered logs if filter is active
+                    let filteredLogs = consoleLogs;
                     if (hasFilter && filterState) {
-                        let filteredLogs = consoleLogs;
-                        
                         // Apply type filter
                         if (filterState.currentFilter !== 'all') {
                             filteredLogs = filteredLogs.filter(log => log.level === filterState.currentFilter);
@@ -1782,8 +1787,25 @@ function updateConsoleStats() {
                                 return message.includes(filterState.searchValue) || argsStr.includes(filterState.searchValue);
                             });
                         }
+                    }
+                    
+                    // Get trimmed logs for stats (what would actually be copied)
+                    chrome.storage.local.get(['consoleViewerTrimSelection'], (trimResult) => {
+                        const trimSelection = trimResult.consoleViewerTrimSelection;
+                        let trimmedLogs = filteredLogs;
                         
-                        filteredLogs.forEach(log => {
+                        if (trimSelection && trimSelection.selectedStartIndex !== null) {
+                            if (trimSelection.selectedEndIndex !== null) {
+                                // Both start and end selected
+                                trimmedLogs = filteredLogs.slice(trimSelection.selectedStartIndex, trimSelection.selectedEndIndex + 1);
+                            } else {
+                                // Only start selected - from start to end
+                                trimmedLogs = filteredLogs.slice(trimSelection.selectedStartIndex);
+                            }
+                        }
+                        
+                        // Calculate stats for trimmed logs (what will be copied)
+                        trimmedLogs.forEach(log => {
                             const message = formatConsoleLogMessage(log);
                             const lines = message.split('\n').length;
                             filteredConsoleLines += lines;
@@ -1792,22 +1814,26 @@ function updateConsoleStats() {
                             const text = message + (log.stack || '');
                             filteredConsoleTokens += Math.ceil(text.length / 4);
                         });
-                    }
-                    
-                    // Add console header
-                    if (consoleLogs.length > 0) {
-                        consoleLines += 2; // "Console Logs:\n" + separator
-                        if (hasFilter && filteredConsoleLines > 0) {
-                            filteredConsoleLines += 2; // "Console Logs:\n" + separator
+                        
+                        // Add console header
+                        if (consoleLogs.length > 0) {
+                            consoleLines += 2; // "Console Logs:\n" + separator
+                            if (trimmedLogs.length > 0) {
+                                filteredConsoleLines += 2; // "Console Logs:\n" + separator
+                            }
                         }
-                    }
+                        
+                        // Update display with combined stats (including trimmed info)
+                        // Trimmed counts include selected network requests + trimmed console logs
+                        const hasTrimSelection = trimSelection && trimSelection.selectedStartIndex !== null;
+                        updateStatsDisplay(networkLines + consoleLines, networkTokens + consoleTokens, 
+                            hasTrimSelection && filteredConsoleLines > 0 ? networkLines + filteredConsoleLines : null, 
+                            hasTrimSelection && filteredConsoleTokens > 0 ? networkTokens + filteredConsoleTokens : null);
+                    });
+                } else {
+                    // No console logs, update display with just network stats
+                    updateStatsDisplay(networkLines, networkTokens);
                 }
-                
-                // Update display with combined stats (including filtered info)
-                // Filtered counts include selected network requests + filtered console logs
-                updateStatsDisplay(networkLines + consoleLines, networkTokens + consoleTokens, 
-                    hasFilter && filteredConsoleLines > 0 ? networkLines + filteredConsoleLines : null, 
-                    hasFilter && filteredConsoleTokens > 0 ? networkTokens + filteredConsoleTokens : null);
             });
         });
     } else {
@@ -1878,7 +1904,7 @@ function copySelected() {
             }
             
             const consoleLogs = response && response.logs ? response.logs : [];
-            // Copy console logs even if empty (will show header)
+            // Copy trimmed console logs even if empty (will show header)
             copyConsoleOnlyToClipboard(consoleLogs);
         });
         return;
@@ -1899,7 +1925,13 @@ function copySelected() {
             }
             
             const consoleLogs = response && response.logs ? response.logs : [];
-            copyToClipboardWithConsole(selectedRequests, consoleLogs);
+            // Get trimmed console logs
+            chrome.storage.local.get(['consoleViewerFilter'], (filterResult) => {
+                const filterState = filterResult.consoleViewerFilter;
+                getTrimmedConsoleLogs(consoleLogs, filterState).then(trimmedLogs => {
+                    copyToClipboardWithConsole(selectedRequests, trimmedLogs);
+                });
+            });
         });
     } else {
         copyNetworkRequestsToClipboard(selectedRequests);
@@ -2026,30 +2058,79 @@ function copyDetailRequest(e) {
     });
 }
 
-// Copy console logs only to clipboard
-function copyConsoleOnlyToClipboard(consoleLogs) {
-    let text = '';
+// Get trimmed console logs based on trim selection from storage
+function getTrimmedConsoleLogs(consoleLogs, filterState) {
+    // Apply filters first to get filtered logs
+    let filteredLogs = consoleLogs;
     
-    text += 'Console Logs:\n';
-    text += '='.repeat(80) + '\n\n';
-    
-    if (consoleLogs.length === 0) {
-        text += 'No console logs captured.\n';
-    } else {
-        consoleLogs.forEach((log, index) => {
-            const timestamp = formatConsoleTimestamp(log.timestamp);
-            const level = log.level.toUpperCase();
-            const message = formatConsoleLogMessage(log);
-            const stack = log.stack ? '\n' + log.stack : '';
-            
-            text += `[${timestamp}] [${level}] ${message}${stack}`;
-            if (index < consoleLogs.length - 1) {
-                text += '\n';
-            }
-        });
+    if (filterState) {
+        // Apply type filter
+        if (filterState.currentFilter !== 'all') {
+            filteredLogs = filteredLogs.filter(log => log.level === filterState.currentFilter);
+        }
+        
+        // Apply search filter
+        if (filterState.searchValue) {
+            filteredLogs = filteredLogs.filter(log => {
+                const message = log.message ? log.message.toLowerCase() : '';
+                const argsStr = JSON.stringify(log.args || []).toLowerCase();
+                return message.includes(filterState.searchValue) || argsStr.includes(filterState.searchValue);
+            });
+        }
     }
     
-    copyTextToClipboard(text);
+    // Get trim selection from storage
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['consoleViewerTrimSelection'], (result) => {
+            const trimSelection = result.consoleViewerTrimSelection;
+            let trimmedLogs = filteredLogs;
+            
+            if (trimSelection && trimSelection.selectedStartIndex !== null) {
+                if (trimSelection.selectedEndIndex !== null) {
+                    // Both start and end selected - copy range
+                    trimmedLogs = filteredLogs.slice(trimSelection.selectedStartIndex, trimSelection.selectedEndIndex + 1);
+                } else {
+                    // Only start selected - copy from start to end of filtered logs
+                    trimmedLogs = filteredLogs.slice(trimSelection.selectedStartIndex);
+                }
+            }
+            
+            resolve(trimmedLogs);
+        });
+    });
+}
+
+// Copy console logs only to clipboard
+function copyConsoleOnlyToClipboard(consoleLogs) {
+    // Get filter state and trimmed logs
+    chrome.storage.local.get(['consoleViewerFilter'], (filterResult) => {
+        const filterState = filterResult.consoleViewerFilter;
+        
+        getTrimmedConsoleLogs(consoleLogs, filterState).then(trimmedLogs => {
+            let text = '';
+            
+            text += 'Console Logs:\n';
+            text += '='.repeat(80) + '\n\n';
+            
+            if (trimmedLogs.length === 0) {
+                text += 'No console logs captured.\n';
+            } else {
+                trimmedLogs.forEach((log, index) => {
+                    const timestamp = formatConsoleTimestamp(log.timestamp);
+                    const level = log.level.toUpperCase();
+                    const message = formatConsoleLogMessage(log);
+                    const stack = log.stack ? '\n' + log.stack : '';
+                    
+                    text += `[${timestamp}] [${level}] ${message}${stack}`;
+                    if (index < trimmedLogs.length - 1) {
+                        text += '\n';
+                    }
+                });
+            }
+            
+            copyTextToClipboard(text);
+        });
+    });
 }
 
 // Copy network requests and console logs to clipboard
