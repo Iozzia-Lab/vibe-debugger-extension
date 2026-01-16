@@ -1008,15 +1008,17 @@ function groupRequests(requests) {
     }
     
     // Create a map to group requests
-    // Group by URL + payload only (allows cancelled requests to group with completed ones)
+    // Group by URL + payload + response (exact match required)
     const groups = new Map();
     
     requests.forEach(req => {
         const isPending = req.pending === true || req.status === null || req.status === undefined;
         const payloadStr = req.payload ? JSON.stringify(req.payload) : '';
+        const responseStr = req.response ? JSON.stringify(req.response) : '';
         
-        // Group by URL + payload only (not response) - allows cancelled to match completed
-        const key = `${req.url}|||${payloadStr}`;
+        // Group by URL + payload + response (all must match)
+        // For pending/cancelled requests without response, use empty string
+        const key = `${req.url}|||${payloadStr}|||${responseStr}`;
         
         if (groups.has(key)) {
             // Add to existing group
