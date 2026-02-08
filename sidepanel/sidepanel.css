@@ -412,7 +412,7 @@ button:active {
     background: #3e3e42;
     border: 1px solid #555;
     color: #d4d4d4;
-    padding: 6px 10px;
+    padding: 6px 28px 6px 10px;
     border-radius: 3px;
     font-size: 12px;
 }
@@ -420,6 +420,61 @@ button:active {
 .search-input:focus {
     outline: none;
     border-color: #0e639c;
+}
+
+.btn-input-clear {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: #858585;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 2px 5px;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.btn-input-clear:hover {
+    color: #d4d4d4;
+    background: transparent;
+}
+
+/* Search Suggestions Dropdown */
+.search-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #3e3e42;
+    border: 1px solid #555;
+    border-top: none;
+    border-radius: 0 0 3px 3px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 100;
+}
+
+.search-suggestions.hidden {
+    display: none;
+}
+
+.suggestion-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #d4d4d4;
+    border-bottom: 1px solid #555;
+}
+
+.suggestion-item:last-child {
+    border-bottom: none;
+}
+
+.suggestion-item:hover {
+    background: #4e4e52;
 }
 
 .error-filter-input {

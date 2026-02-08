@@ -49,7 +49,11 @@
             
             <!-- Search Section -->
             <div class="search-section">
-                <input type="text" id="searchInput" placeholder="Search logs..." class="search-input">
+                <div class="search-input-wrapper">
+                    <input type="text" id="searchInput" placeholder="Search logs..." class="search-input" autocomplete="off" spellcheck="false">
+                    <button class="btn-input-clear" id="clearSearchBtn" title="Clear filter">×</button>
+                    <div class="search-suggestions hidden" id="searchSuggestions"></div>
+                </div>
             </div>
             
             <!-- Log List View -->

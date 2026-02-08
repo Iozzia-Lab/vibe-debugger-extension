@@ -16,6 +16,8 @@ let expandedRows = new Set(); // Set of expanded row indices
 const logList = document.getElementById('logList');
 const copyAllBtn = document.getElementById('copyAllBtn');
 const searchInput = document.getElementById('searchInput');
+const clearSearchBtn = document.getElementById('clearSearchBtn');
+const searchSuggestions = document.getElementById('searchSuggestions');
 const filterButtons = document.querySelectorAll('.filter-btn');
 const tabButtons = document.querySelectorAll('.tab-btn');
 const consoleTab = document.getElementById('consoleTab');
@@ -41,19 +43,60 @@ let currentTab = 'console';
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     loadRecordingState();
+    loadSavedFilter(); // Load persisted filter
     loadLogs();
     setupEventListeners();
     setupMessageListener();
-    
+
     // Refresh logs periodically
     setInterval(loadLogs, 500);
 });
 
+// Load saved filter from storage
+function loadSavedFilter() {
+    chrome.storage.local.get(['consoleViewerSearchFilter'], (result) => {
+        if (result.consoleViewerSearchFilter && searchInput) {
+            searchInput.value = result.consoleViewerSearchFilter;
+            filterLogs(); // Apply the filter
+        }
+    });
+}
+
+// Save filter to storage
+function saveFilter() {
+    const filterValue = searchInput ? searchInput.value : '';
+    chrome.storage.local.set({ consoleViewerSearchFilter: filterValue });
+}
+
 // Setup event listeners
 function setupEventListeners() {
     copyAllBtn.addEventListener('click', copyAllLogs);
-    searchInput.addEventListener('input', filterLogs);
-    
+    searchInput.addEventListener('input', () => {
+        filterLogs();
+        saveFilter(); // Persist filter on change
+        showSuggestions();
+    });
+
+    // Clear search button
+    if (clearSearchBtn) {
+        clearSearchBtn.addEventListener('click', () => {
+            searchInput.value = '';
+            filterLogs();
+            saveFilter();
+            hideSuggestions();
+            searchInput.focus();
+        });
+    }
+
+    // Show suggestions on focus
+    if (searchInput) {
+        searchInput.addEventListener('focus', showSuggestions);
+        searchInput.addEventListener('blur', () => {
+            // Delay hiding to allow click on suggestion
+            setTimeout(hideSuggestions, 200);
+        });
+    }
+
     // Filter buttons
     filterButtons.forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -61,7 +104,7 @@ function setupEventListeners() {
             setFilter(filter);
         });
     });
-    
+
     // Tab buttons
     tabButtons.forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -69,19 +112,86 @@ function setupEventListeners() {
             switchTab(tab);
         });
     });
-    
+
     // Refresh buttons
     if (refreshCacheBtn) {
         refreshCacheBtn.addEventListener('click', () => {
             loadCacheData();
         });
     }
-    
+
     if (refreshLocalStorageBtn) {
         refreshLocalStorageBtn.addEventListener('click', () => {
             loadLocalStorageData();
         });
     }
+}
+
+// Show filter suggestions from active project
+function showSuggestions() {
+    if (!searchSuggestions) return;
+
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+        const projects = result.projects || [];
+        const activeProjectId = result.activeProjectId;
+        const project = projects.find(p => p.id === activeProjectId);
+
+        if (!project || !project.consoleFilterSuggestions) {
+            hideSuggestions();
+            return;
+        }
+
+        const suggestions = project.consoleFilterSuggestions
+            .split(',')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+
+        if (suggestions.length === 0) {
+            hideSuggestions();
+            return;
+        }
+
+        const currentValue = searchInput.value.toLowerCase();
+        const filteredSuggestions = suggestions.filter(s =>
+            s.toLowerCase().includes(currentValue) || currentValue === ''
+        );
+
+        if (filteredSuggestions.length === 0) {
+            hideSuggestions();
+            return;
+        }
+
+        searchSuggestions.innerHTML = filteredSuggestions.map(suggestion => `
+            <div class="suggestion-item" data-suggestion="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</div>
+        `).join('');
+
+        // Add click handlers to suggestions
+        searchSuggestions.querySelectorAll('.suggestion-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const value = e.target.getAttribute('data-suggestion');
+                searchInput.value = value;
+                filterLogs();
+                saveFilter();
+                hideSuggestions();
+            });
+        });
+
+        searchSuggestions.classList.remove('hidden');
+    });
+}
+
+// Hide suggestions dropdown
+function hideSuggestions() {
+    if (searchSuggestions) {
+        searchSuggestions.classList.add('hidden');
+    }
+}
+
+// Escape HTML for safe rendering
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Switch tabs
@@ -130,7 +240,7 @@ function setupMessageListener() {
                     lastClearFlag = newClearFlag;
                     allLogs = [];
                     filteredLogs = [];
-                    searchInput.value = '';
+                    // Note: Don't clear searchInput - preserve filter on clear
                     selectedStartIndex = null;
                     selectedEndIndex = null;
                     saveTrimSelectionToStorage();
@@ -175,7 +285,7 @@ function loadLogs() {
             lastClearFlag = currentClearFlag;
             allLogs = [];
             filteredLogs = [];
-            searchInput.value = '';
+            // Note: Don't clear searchInput - preserve filter on clear
             selectedStartIndex = null;
             selectedEndIndex = null;
             renderLogList();
@@ -827,7 +937,7 @@ function clearAllLogs() {
         if (response && response.success) {
             allLogs = [];
             filteredLogs = [];
-            searchInput.value = '';
+            // Note: Don't clear searchInput - preserve filter on clear
             selectedStartIndex = null;
             selectedEndIndex = null;
             expandedRows.clear();

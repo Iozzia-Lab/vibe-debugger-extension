@@ -24,6 +24,10 @@ const requestCount = document.getElementById('requestCount');
 const searchInput = document.getElementById('searchInput');
 const errorFilterInput = document.getElementById('errorFilterInput');
 const searchHistoryDropdown = document.getElementById('searchHistoryDropdown');
+const clearNetworkSearchBtn = document.getElementById('clearNetworkSearchBtn');
+const clearErrorFilterBtn = document.getElementById('clearErrorFilterBtn');
+const networkSearchSuggestions = document.getElementById('networkSearchSuggestions');
+const errorFilterSuggestions = document.getElementById('errorFilterSuggestions');
 const recordBtn = document.getElementById('recordBtn');
 const reloadBtn = document.getElementById('reloadBtn');
 const clearBtn = document.getElementById('clearBtn');
@@ -138,9 +142,44 @@ function setupEventListeners() {
             filterRequests();
             // Auto-save error filter strings to active project
             saveErrorFilterToActiveProject();
+            showErrorFilterSuggestions();
+        });
+        errorFilterInput.addEventListener('focus', showErrorFilterSuggestions);
+        errorFilterInput.addEventListener('blur', () => {
+            setTimeout(hideErrorFilterSuggestions, 200);
         });
     }
-    
+
+    // Clear network search button
+    if (clearNetworkSearchBtn) {
+        clearNetworkSearchBtn.addEventListener('click', () => {
+            searchInput.value = '';
+            filterRequests();
+            saveNetworkFilterToActiveProject();
+            hideNetworkSearchSuggestions();
+            searchInput.focus();
+        });
+    }
+
+    // Clear error filter button
+    if (clearErrorFilterBtn) {
+        clearErrorFilterBtn.addEventListener('click', () => {
+            errorFilterInput.value = '';
+            filterRequests();
+            saveErrorFilterToActiveProject();
+            hideErrorFilterSuggestions();
+            errorFilterInput.focus();
+        });
+    }
+
+    // Network search suggestions
+    if (searchInput) {
+        searchInput.addEventListener('focus', showNetworkSearchSuggestions);
+        searchInput.addEventListener('blur', () => {
+            setTimeout(hideNetworkSearchSuggestions, 200);
+        });
+    }
+
     // Search toggle button
     const searchToggleBtn = document.getElementById('searchToggleBtn');
     if (searchToggleBtn && searchSection) {
@@ -2867,10 +2906,13 @@ function saveProject(e) {
     
     chrome.storage.local.get(['projects'], (result) => {
         const projects = result.projects || [];
-        
+
         const logFile = document.getElementById('projectLogFile').value.trim() || 'debug.log';
         const combinedDebugFile = document.getElementById('projectCombinedDebugFile').value.trim() || '';
-        
+        const networkFilterSuggestions = document.getElementById('projectNetworkFilterSuggestions').value.trim() || '';
+        const errorFilterSuggestions = document.getElementById('projectErrorFilterSuggestions').value.trim() || '';
+        const consoleFilterSuggestions = document.getElementById('projectConsoleFilterSuggestions').value.trim() || '';
+
         if (editingProjectId) {
             // Update existing project
             const index = projects.findIndex(p => p.id === editingProjectId);
@@ -2882,7 +2924,10 @@ function saveProject(e) {
                     frontendDomain: frontendDomain,
                     backendDomain: backendDomain,
                     logFilePath: logFile,
-                    combinedDebugFilePath: combinedDebugFile
+                    combinedDebugFilePath: combinedDebugFile,
+                    networkFilterSuggestions: networkFilterSuggestions,
+                    errorFilterSuggestions: errorFilterSuggestions,
+                    consoleFilterSuggestions: consoleFilterSuggestions
                 };
             }
         } else {
@@ -2895,6 +2940,9 @@ function saveProject(e) {
                 backendDomain: backendDomain,
                 logFilePath: logFile,
                 combinedDebugFilePath: combinedDebugFile,
+                networkFilterSuggestions: networkFilterSuggestions,
+                errorFilterSuggestions: errorFilterSuggestions,
+                consoleFilterSuggestions: consoleFilterSuggestions,
                 errorFilterStrings: 'ERROR', // Default error filter
                 networkFilterStrings: '', // Default network filter (empty)
                 currentFilter: 'all', // Default filter type
@@ -2936,6 +2984,9 @@ function editProject(projectId) {
             document.getElementById('projectBackendDomain').value = project.backendDomain || '';
             document.getElementById('projectLogFile').value = project.logFilePath || 'debug.log';
             document.getElementById('projectCombinedDebugFile').value = project.combinedDebugFilePath || '';
+            document.getElementById('projectNetworkFilterSuggestions').value = project.networkFilterSuggestions || '';
+            document.getElementById('projectErrorFilterSuggestions').value = project.errorFilterSuggestions || '';
+            document.getElementById('projectConsoleFilterSuggestions').value = project.consoleFilterSuggestions || '';
             projectFormModal.classList.remove('hidden');
             projectsModal.classList.add('hidden');
         }
@@ -3722,5 +3773,127 @@ function openMarkupViewer() {
             }
         });
     });
+}
+
+// ==================== FILTER SUGGESTIONS ====================
+
+// Show network search suggestions from active project
+function showNetworkSearchSuggestions() {
+    if (!networkSearchSuggestions) return;
+
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+        const projects = result.projects || [];
+        const activeProjectId = result.activeProjectId;
+        const project = projects.find(p => p.id === activeProjectId);
+
+        if (!project || !project.networkFilterSuggestions) {
+            hideNetworkSearchSuggestions();
+            return;
+        }
+
+        const suggestions = project.networkFilterSuggestions
+            .split(',')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+
+        if (suggestions.length === 0) {
+            hideNetworkSearchSuggestions();
+            return;
+        }
+
+        const currentValue = searchInput.value.toLowerCase();
+        const filteredSuggestions = suggestions.filter(s =>
+            s.toLowerCase().includes(currentValue) || currentValue === ''
+        );
+
+        if (filteredSuggestions.length === 0) {
+            hideNetworkSearchSuggestions();
+            return;
+        }
+
+        networkSearchSuggestions.innerHTML = filteredSuggestions.map(suggestion => `
+            <div class="suggestion-item" data-suggestion="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</div>
+        `).join('');
+
+        // Add click handlers to suggestions
+        networkSearchSuggestions.querySelectorAll('.suggestion-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const value = e.target.getAttribute('data-suggestion');
+                searchInput.value = value;
+                filterRequests();
+                saveNetworkFilterToActiveProject();
+                hideNetworkSearchSuggestions();
+            });
+        });
+
+        networkSearchSuggestions.classList.remove('hidden');
+    });
+}
+
+// Hide network search suggestions
+function hideNetworkSearchSuggestions() {
+    if (networkSearchSuggestions) {
+        networkSearchSuggestions.classList.add('hidden');
+    }
+}
+
+// Show error filter suggestions from active project
+function showErrorFilterSuggestions() {
+    if (!errorFilterSuggestions) return;
+
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+        const projects = result.projects || [];
+        const activeProjectId = result.activeProjectId;
+        const project = projects.find(p => p.id === activeProjectId);
+
+        if (!project || !project.errorFilterSuggestions) {
+            hideErrorFilterSuggestions();
+            return;
+        }
+
+        const suggestions = project.errorFilterSuggestions
+            .split(',')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+
+        if (suggestions.length === 0) {
+            hideErrorFilterSuggestions();
+            return;
+        }
+
+        const currentValue = errorFilterInput.value.toLowerCase();
+        const filteredSuggestions = suggestions.filter(s =>
+            s.toLowerCase().includes(currentValue) || currentValue === ''
+        );
+
+        if (filteredSuggestions.length === 0) {
+            hideErrorFilterSuggestions();
+            return;
+        }
+
+        errorFilterSuggestions.innerHTML = filteredSuggestions.map(suggestion => `
+            <div class="suggestion-item" data-suggestion="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</div>
+        `).join('');
+
+        // Add click handlers to suggestions
+        errorFilterSuggestions.querySelectorAll('.suggestion-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const value = e.target.getAttribute('data-suggestion');
+                errorFilterInput.value = value;
+                filterRequests();
+                saveErrorFilterToActiveProject();
+                hideErrorFilterSuggestions();
+            });
+        });
+
+        errorFilterSuggestions.classList.remove('hidden');
+    });
+}
+
+// Hide error filter suggestions
+function hideErrorFilterSuggestions() {
+    if (errorFilterSuggestions) {
+        errorFilterSuggestions.classList.add('hidden');
+    }
 }
 
