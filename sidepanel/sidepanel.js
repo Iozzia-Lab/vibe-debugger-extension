@@ -152,6 +152,11 @@ function setupEventListeners() {
         });
     }
 
+    // Event delegation for error filter suggestions clicks
+    if (errorFilterSuggestions) {
+        errorFilterSuggestions.addEventListener('click', handleErrorSuggestionClick);
+    }
+
     // Clear network search button
     if (clearNetworkSearchBtn) {
         clearNetworkSearchBtn.addEventListener('click', () => {
@@ -183,6 +188,11 @@ function setupEventListeners() {
             saveNetworkFilterToActiveProject();
             saveNetworkFilterToSuggestions();
         });
+    }
+
+    // Event delegation for network search suggestions clicks
+    if (networkSearchSuggestions) {
+        networkSearchSuggestions.addEventListener('click', handleNetworkSuggestionClick);
     }
 
     // Search toggle button
@@ -3782,9 +3792,18 @@ function openMarkupViewer() {
 
 // ==================== FILTER SUGGESTIONS ====================
 
+// Flag to prevent suggestions from showing immediately after selection
+let networkSuggestionJustSelected = false;
+
 // Show network search suggestions from active project
 function showNetworkSearchSuggestions() {
     if (!networkSearchSuggestions) return;
+
+    // Don't show if we just selected a suggestion
+    if (networkSuggestionJustSelected) {
+        networkSuggestionJustSelected = false;
+        return;
+    }
 
     chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
         const projects = result.projects || [];
@@ -3820,19 +3839,23 @@ function showNetworkSearchSuggestions() {
             <div class="suggestion-item" data-suggestion="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</div>
         `).join('');
 
-        // Add click handlers to suggestions
-        networkSearchSuggestions.querySelectorAll('.suggestion-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                const value = e.target.getAttribute('data-suggestion');
-                searchInput.value = value;
-                filterRequests();
-                saveNetworkFilterToActiveProject();
-                hideNetworkSearchSuggestions();
-            });
-        });
-
         networkSearchSuggestions.classList.remove('hidden');
     });
+}
+
+// Handle network suggestion click - use event delegation for reliability
+function handleNetworkSuggestionClick(e) {
+    const item = e.target.closest('.suggestion-item');
+    if (!item) return;
+
+    const value = item.getAttribute('data-suggestion');
+    if (value) {
+        networkSuggestionJustSelected = true;
+        searchInput.value = value;
+        filterRequests();
+        saveNetworkFilterToActiveProject();
+        hideNetworkSearchSuggestions();
+    }
 }
 
 // Hide network search suggestions
@@ -3842,9 +3865,18 @@ function hideNetworkSearchSuggestions() {
     }
 }
 
+// Flag to prevent error suggestions from showing immediately after selection
+let errorSuggestionJustSelected = false;
+
 // Show error filter suggestions from active project
 function showErrorFilterSuggestions() {
     if (!errorFilterSuggestions) return;
+
+    // Don't show if we just selected a suggestion
+    if (errorSuggestionJustSelected) {
+        errorSuggestionJustSelected = false;
+        return;
+    }
 
     chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
         const projects = result.projects || [];
@@ -3880,19 +3912,23 @@ function showErrorFilterSuggestions() {
             <div class="suggestion-item" data-suggestion="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</div>
         `).join('');
 
-        // Add click handlers to suggestions
-        errorFilterSuggestions.querySelectorAll('.suggestion-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                const value = e.target.getAttribute('data-suggestion');
-                errorFilterInput.value = value;
-                filterRequests();
-                saveErrorFilterToActiveProject();
-                hideErrorFilterSuggestions();
-            });
-        });
-
         errorFilterSuggestions.classList.remove('hidden');
     });
+}
+
+// Handle error suggestion click - use event delegation for reliability
+function handleErrorSuggestionClick(e) {
+    const item = e.target.closest('.suggestion-item');
+    if (!item) return;
+
+    const value = item.getAttribute('data-suggestion');
+    if (value) {
+        errorSuggestionJustSelected = true;
+        errorFilterInput.value = value;
+        filterRequests();
+        saveErrorFilterToActiveProject();
+        hideErrorFilterSuggestions();
+    }
 }
 
 // Hide error filter suggestions
