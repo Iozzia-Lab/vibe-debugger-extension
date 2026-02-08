@@ -83,6 +83,15 @@ button:active {
     color: #858585;
 }
 
+.btn-clear-logs {
+    background: #d9534f;
+    color: white;
+}
+
+.btn-clear-logs:hover {
+    background: #c9302c;
+}
+
 .btn-copy-all {
     background: #0e639c;
     color: white;

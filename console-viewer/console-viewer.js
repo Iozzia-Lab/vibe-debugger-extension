@@ -15,6 +15,7 @@ let expandedRows = new Set(); // Set of expanded row indices
 // DOM Elements
 const logList = document.getElementById('logList');
 const copyAllBtn = document.getElementById('copyAllBtn');
+const clearLogsBtn = document.getElementById('clearLogsBtn');
 const searchInput = document.getElementById('searchInput');
 const clearSearchBtn = document.getElementById('clearSearchBtn');
 const searchSuggestions = document.getElementById('searchSuggestions');
@@ -71,6 +72,9 @@ function saveFilter() {
 // Setup event listeners
 function setupEventListeners() {
     copyAllBtn.addEventListener('click', copyAllLogs);
+    if (clearLogsBtn) {
+        clearLogsBtn.addEventListener('click', clearAllLogs);
+    }
     searchInput.addEventListener('input', () => {
         filterLogs();
         saveFilter(); // Persist filter on change
