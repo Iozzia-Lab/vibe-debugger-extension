@@ -131,6 +131,8 @@ function setupEventListeners() {
         searchInput.addEventListener('blur', () => {
             // Delay hiding to allow click on suggestion
             setTimeout(hideSuggestions, 200);
+            // Save filter to project suggestions on blur
+            saveFilterToProjectSuggestions();
         });
     }
 
@@ -234,6 +236,53 @@ function hideSuggestions() {
     if (searchSuggestions) {
         searchSuggestions.classList.add('hidden');
     }
+}
+
+// Save current filter value to project's consoleFilterSuggestions
+function saveFilterToProjectSuggestions() {
+    const filterValue = searchInput ? searchInput.value.trim() : '';
+    if (!filterValue) return;
+
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+        const projects = result.projects || [];
+        const activeProjectId = result.activeProjectId;
+
+        if (!activeProjectId) return;
+
+        const projectIndex = projects.findIndex(p => p.id === activeProjectId);
+        if (projectIndex === -1) return;
+
+        const project = projects[projectIndex];
+        const existingSuggestions = project.consoleFilterSuggestions || '';
+
+        // Parse existing suggestions into array
+        const suggestionsArray = existingSuggestions
+            .split(',')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+
+        // Check if filter value already exists (case-insensitive)
+        const filterLower = filterValue.toLowerCase();
+        const alreadyExists = suggestionsArray.some(s => s.toLowerCase() === filterLower);
+
+        if (!alreadyExists) {
+            // Add to beginning of suggestions
+            suggestionsArray.unshift(filterValue);
+
+            // Limit to 20 suggestions
+            if (suggestionsArray.length > 20) {
+                suggestionsArray.pop();
+            }
+
+            // Save back to project
+            projects[projectIndex] = {
+                ...project,
+                consoleFilterSuggestions: suggestionsArray.join(', ')
+            };
+
+            chrome.storage.local.set({ projects: projects });
+        }
+    });
 }
 
 // Escape HTML for safe rendering
@@ -398,13 +447,21 @@ function applyFilters(preserveTrimSelection = false) {
     }
     
     // Apply search filter
-    const searchValue = searchInput.value.trim().toLowerCase();
+    const searchValue = searchInput.value.trim();
     if (searchValue) {
-        logs = logs.filter(log => {
-            const message = log.message ? log.message.toLowerCase() : '';
-            const argsStr = JSON.stringify(log.args || []).toLowerCase();
-            return message.includes(searchValue) || argsStr.includes(searchValue);
-        });
+        // Split by comma for multi-inclusive (OR) filtering
+        const searchTerms = searchValue.split(',').map(s => s.trim().toLowerCase()).filter(s => s.length > 0);
+
+        if (searchTerms.length > 0) {
+            logs = logs.filter(log => {
+                const message = log.message ? log.message.toLowerCase() : '';
+                const argsStr = JSON.stringify(log.args || []).toLowerCase();
+                // Match if ANY term matches (OR logic)
+                return searchTerms.some(term =>
+                    message.includes(term) || argsStr.includes(term)
+                );
+            });
+        }
     }
     
     filteredLogs = logs;
