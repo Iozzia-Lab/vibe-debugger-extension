@@ -63,7 +63,6 @@
     
     // Only accept messages with our specific format
     if (event.data && event.data.type === 'NETWORK_CAPTURE_REQUEST') {
-      console.log('[Network Capture] Received request:', event.data.data.url);
       forwardToBackground('NETWORK_REQUEST', event.data.data);
     }
     
