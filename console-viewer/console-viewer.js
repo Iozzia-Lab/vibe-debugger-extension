@@ -19,6 +19,11 @@ const clearLogsBtn = document.getElementById('clearLogsBtn');
 const searchInput = document.getElementById('searchInput');
 const clearSearchBtn = document.getElementById('clearSearchBtn');
 const searchSuggestions = document.getElementById('searchSuggestions');
+const autoScrollCheckbox = document.getElementById('autoScrollCheckbox');
+const logListContainer = document.getElementById('logListContainer');
+
+// Auto-scroll state
+let autoScrollEnabled = true;
 const filterButtons = document.querySelectorAll('.filter-btn');
 const tabButtons = document.querySelectorAll('.tab-btn');
 const consoleTab = document.getElementById('consoleTab');
@@ -45,6 +50,7 @@ let currentTab = 'console';
 document.addEventListener('DOMContentLoaded', () => {
     loadRecordingState();
     loadSavedFilter(); // Load persisted filter
+    loadAutoScrollState(); // Load auto-scroll preference
     loadLogs();
     setupEventListeners();
     setupMessageListener();
@@ -52,6 +58,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // Refresh logs periodically
     setInterval(loadLogs, 500);
 });
+
+// Load auto-scroll state from storage
+function loadAutoScrollState() {
+    chrome.storage.local.get(['consoleViewerAutoScroll'], (result) => {
+        // Default to true if not set
+        autoScrollEnabled = result.consoleViewerAutoScroll !== false;
+        if (autoScrollCheckbox) {
+            autoScrollCheckbox.checked = autoScrollEnabled;
+        }
+        // If enabled, scroll to bottom
+        if (autoScrollEnabled) {
+            scrollToBottom();
+        }
+    });
+}
+
+// Save auto-scroll state to storage
+function saveAutoScrollState() {
+    chrome.storage.local.set({ consoleViewerAutoScroll: autoScrollEnabled });
+}
+
+// Scroll log list to bottom
+function scrollToBottom() {
+    if (logListContainer) {
+        logListContainer.scrollTop = logListContainer.scrollHeight;
+    }
+}
 
 // Load saved filter from storage
 function loadSavedFilter() {
@@ -127,6 +160,18 @@ function setupEventListeners() {
     if (refreshLocalStorageBtn) {
         refreshLocalStorageBtn.addEventListener('click', () => {
             loadLocalStorageData();
+        });
+    }
+
+    // Auto-scroll checkbox
+    if (autoScrollCheckbox) {
+        autoScrollCheckbox.addEventListener('change', () => {
+            autoScrollEnabled = autoScrollCheckbox.checked;
+            saveAutoScrollState();
+            // If enabling, jump to bottom immediately
+            if (autoScrollEnabled) {
+                scrollToBottom();
+            }
         });
     }
 }
@@ -541,9 +586,15 @@ function renderLogList() {
         // Attach row expansion handlers
         attachRowExpansionHandlers();
     }, 0);
-    
+
     // Update counts display
     updateCountsDisplay();
+
+    // Auto-scroll to bottom if enabled
+    if (autoScrollEnabled) {
+        // Use setTimeout to ensure DOM has updated
+        setTimeout(scrollToBottom, 10);
+    }
 }
 
 // Toggle row expansion

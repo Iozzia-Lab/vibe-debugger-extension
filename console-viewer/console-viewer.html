@@ -58,13 +58,21 @@
             </div>
             
             <!-- Log List View -->
-            <div class="log-list-container">
+            <div class="log-list-container" id="logListContainer">
                 <div class="log-list" id="logList">
                     <div class="empty-state">
                         <p>No console logs captured yet.</p>
                         <p class="hint">Console logs will appear here as they are generated on the page.</p>
                     </div>
                 </div>
+            </div>
+
+            <!-- Footer with auto-scroll control -->
+            <div class="console-footer">
+                <label class="auto-scroll-label">
+                    <input type="checkbox" id="autoScrollCheckbox" checked>
+                    <span>Auto-scroll</span>
+                </label>
             </div>
         </div>
         

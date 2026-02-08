@@ -384,6 +384,32 @@ button:active {
     min-height: 0;
 }
 
+/* Console Footer */
+.console-footer {
+    padding: 8px 20px;
+    background: #252526;
+    border-top: 1px solid #3e3e42;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.auto-scroll-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #d4d4d4;
+    user-select: none;
+}
+
+.auto-scroll-label input[type="checkbox"] {
+    cursor: pointer;
+    accent-color: #0e639c;
+}
+
 .log-list {
     padding: 10px;
 }
