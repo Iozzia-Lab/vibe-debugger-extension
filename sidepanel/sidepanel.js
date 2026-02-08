@@ -619,10 +619,8 @@ function loadFilterStateFromActiveProject() {
             if (project.currentFilter) {
                 currentFilter = project.currentFilter;
             }
-            // Load errors filter active state
-            if (project.errorsFilterActive !== undefined) {
-                errorsFilterActive = project.errorsFilterActive;
-            }
+            // Note: errorsFilterActive is NOT restored from project - always starts as false
+            // This prevents confusion when loading the extension with no visible requests
             updateFilterButtons();
         }
     });
@@ -855,10 +853,33 @@ function updateRecordingButton() {
     }
 }
 
+// Clear all filters and show all requests
+function clearAllFilters() {
+    // Reset type filter to 'all'
+    currentFilter = 'all';
+
+    // Reset errors filter
+    errorsFilterActive = false;
+
+    // Clear search input
+    if (searchInput) {
+        searchInput.value = '';
+    }
+
+    // Update UI buttons
+    updateFilterButtons();
+
+    // Re-apply filters (now cleared)
+    applyFilters();
+
+    // Save cleared state to active project
+    saveFilterStateToActiveProject();
+}
+
 // Apply both type filter and search filter
 function applyFilters() {
     let requests = allRequests;
-    
+
     // Apply type filter
     if (currentFilter !== 'all') {
         requests = requests.filter(req => {
@@ -1099,18 +1120,30 @@ function renderRequestList() {
             activeFilters.push(`Search: ${searchInput.value.trim()}`);
         }
         
-        const filterMessage = activeFilters.length > 0 
+        const hasActiveFilters = activeFilters.length > 0 || currentFilter !== 'all' || errorsFilterActive || searchInput.value.trim();
+        const filterMessage = activeFilters.length > 0
             ? `<p class="hint">No requests match the active filters: ${activeFilters.join(', ')}</p>`
-            : (allRequests.length > 0 
+            : (allRequests.length > 0
                 ? '<p class="hint">No requests match the current filters.</p>'
                 : '');
-        
+
+        const clearFiltersBtn = hasActiveFilters
+            ? `<button class="btn-clear-filters" id="clearFiltersBtn">Clear Filters</button>`
+            : '';
+
         requestList.innerHTML = `
             <div class="empty-state">
                 <p>No requests found.</p>
                 ${filterMessage}
+                ${clearFiltersBtn}
             </div>
         `;
+
+        // Add event listener for clear filters button
+        const clearBtn = document.getElementById('clearFiltersBtn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', clearAllFilters);
+        }
         return;
     }
     

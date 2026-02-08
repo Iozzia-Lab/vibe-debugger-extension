@@ -566,6 +566,27 @@ button:active {
     background: #0a4d75;
 }
 
+.btn-clear-filters {
+    margin-top: 15px;
+    padding: 8px 16px;
+    background: #d9534f;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.btn-clear-filters:hover {
+    background: #c9302c;
+}
+
+.btn-clear-filters:active {
+    background: #ac2925;
+}
+
 .request-item-text {
     padding: 6px 0;
     cursor: pointer;

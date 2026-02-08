@@ -343,7 +343,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'NETWORK_REQUEST') {
     // Only capture if recording is enabled AND this is the monitored tab
     const tabId = sender.tab ? sender.tab.id : null;
-    
+
     // Only capture from monitored tab (or if no tab is monitored yet, capture from any tab)
     if (isRecording && (monitoredTabId === null || tabId === monitoredTabId)) {
       // Add tabId to request data
