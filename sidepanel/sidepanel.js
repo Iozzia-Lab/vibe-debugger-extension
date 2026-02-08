@@ -134,19 +134,21 @@ function setupEventListeners() {
     backBtn.addEventListener('click', showListView);
     searchInput.addEventListener('input', (e) => {
         filterRequests();
-        // Auto-save network filter strings to active project
-        saveNetworkFilterToActiveProject();
+        showNetworkSearchSuggestions();
+        // Note: Don't save on input change - save on blur instead
     });
     if (errorFilterInput) {
         errorFilterInput.addEventListener('input', (e) => {
             filterRequests();
-            // Auto-save error filter strings to active project
-            saveErrorFilterToActiveProject();
             showErrorFilterSuggestions();
+            // Note: Don't save on input change - save on blur instead
         });
         errorFilterInput.addEventListener('focus', showErrorFilterSuggestions);
         errorFilterInput.addEventListener('blur', () => {
             setTimeout(hideErrorFilterSuggestions, 200);
+            // Save filter value and add to suggestions on blur
+            saveErrorFilterToActiveProject();
+            saveErrorFilterToSuggestions();
         });
     }
 
@@ -177,6 +179,9 @@ function setupEventListeners() {
         searchInput.addEventListener('focus', showNetworkSearchSuggestions);
         searchInput.addEventListener('blur', () => {
             setTimeout(hideNetworkSearchSuggestions, 200);
+            // Save filter value and add to suggestions on blur
+            saveNetworkFilterToActiveProject();
+            saveNetworkFilterToSuggestions();
         });
     }
 
@@ -3895,5 +3900,99 @@ function hideErrorFilterSuggestions() {
     if (errorFilterSuggestions) {
         errorFilterSuggestions.classList.add('hidden');
     }
+}
+
+// Save network filter value to project's networkFilterSuggestions on blur
+function saveNetworkFilterToSuggestions() {
+    const filterValue = searchInput ? searchInput.value.trim() : '';
+    if (!filterValue) return;
+
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+        const projects = result.projects || [];
+        const activeProjectId = result.activeProjectId;
+
+        if (!activeProjectId) return;
+
+        const projectIndex = projects.findIndex(p => p.id === activeProjectId);
+        if (projectIndex === -1) return;
+
+        const project = projects[projectIndex];
+        const existingSuggestions = project.networkFilterSuggestions || '';
+
+        // Parse existing suggestions into array
+        const suggestionsArray = existingSuggestions
+            .split(',')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+
+        // Check if filter value already exists (case-insensitive)
+        const filterLower = filterValue.toLowerCase();
+        const alreadyExists = suggestionsArray.some(s => s.toLowerCase() === filterLower);
+
+        if (!alreadyExists) {
+            // Add to beginning of suggestions
+            suggestionsArray.unshift(filterValue);
+
+            // Limit to 20 suggestions
+            if (suggestionsArray.length > 20) {
+                suggestionsArray.pop();
+            }
+
+            // Save back to project
+            projects[projectIndex] = {
+                ...project,
+                networkFilterSuggestions: suggestionsArray.join(', ')
+            };
+
+            chrome.storage.local.set({ projects: projects });
+        }
+    });
+}
+
+// Save error filter value to project's errorFilterSuggestions on blur
+function saveErrorFilterToSuggestions() {
+    const filterValue = errorFilterInput ? errorFilterInput.value.trim() : '';
+    if (!filterValue) return;
+
+    chrome.storage.local.get(['projects', 'activeProjectId'], (result) => {
+        const projects = result.projects || [];
+        const activeProjectId = result.activeProjectId;
+
+        if (!activeProjectId) return;
+
+        const projectIndex = projects.findIndex(p => p.id === activeProjectId);
+        if (projectIndex === -1) return;
+
+        const project = projects[projectIndex];
+        const existingSuggestions = project.errorFilterSuggestions || '';
+
+        // Parse existing suggestions into array
+        const suggestionsArray = existingSuggestions
+            .split(',')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+
+        // Check if filter value already exists (case-insensitive)
+        const filterLower = filterValue.toLowerCase();
+        const alreadyExists = suggestionsArray.some(s => s.toLowerCase() === filterLower);
+
+        if (!alreadyExists) {
+            // Add to beginning of suggestions
+            suggestionsArray.unshift(filterValue);
+
+            // Limit to 20 suggestions
+            if (suggestionsArray.length > 20) {
+                suggestionsArray.pop();
+            }
+
+            // Save back to project
+            projects[projectIndex] = {
+                ...project,
+                errorFilterSuggestions: suggestionsArray.join(', ')
+            };
+
+            chrome.storage.local.set({ projects: projects });
+        }
+    });
 }
 
